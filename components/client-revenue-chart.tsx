@@ -1,7 +1,8 @@
 "use client"
 
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import dynamic from 'next/dynamic'
+import { getMonthlyData } from '@/lib/api'
 
 // Import ApexCharts types
 import { ApexOptions } from 'apexcharts'
@@ -10,8 +11,26 @@ import { ApexOptions } from 'apexcharts'
 const ReactApexChart = dynamic(() => import('react-apexcharts'), { ssr: false })
 
 export default function ClientRevenueChart() {
+  const [monthlyData, setMonthlyData] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const data = await getMonthlyData();
+        setMonthlyData(data);
+      } catch (error) {
+        console.error('Error fetching monthly data:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
+
   const formatValue = (val: number) => {
-    return "₹ " + val + " thousands";
+    return "₹ " + val.toLocaleString() + " thousands";
   };
 
   const options: ApexOptions = {
@@ -38,7 +57,11 @@ export default function ClientRevenueChart() {
       colors: ['transparent'],
     },
     xaxis: {
-      categories: ['Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr'],
+      categories: monthlyData.map(item => {
+        const [year, month] = item.month.split('-');
+        const date = new Date(parseInt(year), parseInt(month) - 1);
+        return date.toLocaleString('default', { month: 'short' });
+      }),
       labels: {
         style: {
           colors: '#71717a',
@@ -77,13 +100,17 @@ export default function ClientRevenueChart() {
   const series = [
     {
       name: 'Revenue',
-      data: [28.4, 29.1, 30.6, 31.2, 31.8, 32.5],
+      data: monthlyData.map(item => parseFloat((item.revenue / 1000).toFixed(1))),
     },
     {
       name: 'Expenses',
-      data: [16.8, 17.2, 17.5, 17.9, 18.1, 18.4],
+      data: monthlyData.map(item => parseFloat((item.expense / 1000).toFixed(1))),
     },
   ]
+
+  if (isLoading) {
+    return <div className="h-[350px] flex items-center justify-center">Loading...</div>;
+  }
 
   return (
     <div className="mt-4">

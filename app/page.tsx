@@ -10,8 +10,25 @@ import CustomerSegmentsChart from "@/components/customer-segments-chart"
 import SalesFunnelChart from "@/components/sales-funnel-chart"
 import CashflowTimelineChart from "@/components/cashflow-timeline-chart"
 import KpiRadialCharts from "@/components/kpi-radial-charts"
+import { getFinancialSummary } from "@/lib/db"
+import type { FinancialSummary } from "@/lib/types"
 
-export default function Home() {
+export default async function Home() {
+  const financialSummary = await getFinancialSummary() as FinancialSummary;
+  
+  const formatCurrency = (amount: number) => {
+    return "₹" + amount.toLocaleString('en-IN', { maximumFractionDigits: 0 });
+  };
+
+  const getChangeColor = (change: number) => {
+    return change >= 0 ? "text-green-500 dark:text-green-400" : "text-red-500 dark:text-red-400";
+  };
+
+  const formatChange = (change: number) => {
+    const prefix = change >= 0 ? "↑" : "↓";
+    return `${prefix} ${Math.abs(change).toFixed(1)}%`;
+  };
+
   return (
     <div className="flex min-h-screen flex-col">
       <header className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b bg-background px-4 md:px-6">
@@ -59,44 +76,52 @@ export default function Home() {
           <Card className="border-orange-100">
             <CardHeader className="pb-2">
               <CardDescription>Monthly Revenue</CardDescription>
-              <CardTitle className="text-4xl">₹32,580</CardTitle>
+              <CardTitle className="text-4xl">{formatCurrency(financialSummary.monthlyRevenue)}</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-xs text-muted-foreground">
-                <span className="text-green-500 dark:text-green-400">↑ 12.3%</span> from last month
+                <span className={getChangeColor(financialSummary.revenueChange)}>
+                  {formatChange(financialSummary.revenueChange)}
+                </span> from last month
               </div>
             </CardContent>
           </Card>
           <Card className="border-orange-100">
             <CardHeader className="pb-2">
               <CardDescription>Monthly Expenses</CardDescription>
-              <CardTitle className="text-4xl">₹18,423</CardTitle>
+              <CardTitle className="text-4xl">{formatCurrency(financialSummary.monthlyExpenses)}</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-xs text-muted-foreground">
-                <span className="text-red-500 dark:text-red-400">↑ 8.1%</span> from last month
+                <span className={getChangeColor(-financialSummary.expensesChange)}>
+                  {formatChange(financialSummary.expensesChange)}
+                </span> from last month
               </div>
             </CardContent>
           </Card>
           <Card className="border-orange-100">
             <CardHeader className="pb-2">
               <CardDescription>Net Profit</CardDescription>
-              <CardTitle className="text-4xl">₹14,157</CardTitle>
+              <CardTitle className="text-4xl">{formatCurrency(financialSummary.netProfit)}</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-xs text-muted-foreground">
-                <span className="text-green-500 dark:text-green-400">↑ 18.2%</span> from last month
+                <span className={getChangeColor(financialSummary.netProfitChange)}>
+                  {formatChange(financialSummary.netProfitChange)}
+                </span> from last month
               </div>
             </CardContent>
           </Card>
           <Card className="border-orange-100">
             <CardHeader className="pb-2">
               <CardDescription>Cash Balance</CardDescription>
-              <CardTitle className="text-4xl">₹52,349</CardTitle>
+              <CardTitle className="text-4xl">{formatCurrency(financialSummary.cashBalance)}</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-xs text-muted-foreground">
-                <span className="text-green-500 dark:text-green-400">↑ 4.3%</span> from last month
+                <span className={getChangeColor(financialSummary.netProfitChange)}>
+                  {formatChange(financialSummary.netProfitChange)}
+                </span> from last month
               </div>
             </CardContent>
           </Card>

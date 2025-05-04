@@ -1,97 +1,97 @@
 "use client"
 
-import React from 'react'
+import { useEffect, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { ApexOptions } from 'apexcharts'
+import { getSalesFunnel } from '@/lib/api'
 
 const ReactApexChart = dynamic(() => import('react-apexcharts'), { ssr: false })
 
 export default function SalesFunnelChart() {
+  const [funnelData, setFunnelData] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const data = await getSalesFunnel();
+        setFunnelData(data);
+      } catch (error) {
+        console.error('Error fetching sales funnel data:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
+
   const options: ApexOptions = {
     chart: {
       type: 'bar',
       height: 350,
-      stacked: true,
-      fontFamily: 'inherit',
+      toolbar: {
+        show: false
+      }
     },
     plotOptions: {
       bar: {
+        borderRadius: 4,
         horizontal: true,
         barHeight: '80%',
-        borderRadius: 6,
-      },
+        distributed: true
+      }
     },
     dataLabels: {
       enabled: true,
-      formatter: function(val) {
-        return val + '%'
+      formatter: function (val: number) {
+        return val.toFixed(1) + '%'
       },
       style: {
         fontSize: '12px',
-        colors: ['#fff'],
-        fontWeight: 'normal',
-      },
-    },
-    stroke: {
-      width: 0,
-    },
-    grid: {
-      borderColor: '#f1f5f9',
-      strokeDashArray: 4,
+        colors: ['#fff']
+      }
     },
     xaxis: {
-      categories: ['Awareness', 'Interest', 'Consideration', 'Intent', 'Purchase'],
+      categories: funnelData.map(item => item.stage_name),
       labels: {
         style: {
           colors: '#71717a',
-        },
-      },
+        }
+      }
     },
     yaxis: {
       labels: {
         style: {
           colors: '#71717a',
-        },
-      },
-    },
-    tooltip: {
-      y: {
-        formatter: function(val) {
-          return val + "%"
         }
       }
     },
-    fill: {
-      opacity: 1,
-      type: 'gradient',
-      gradient: {
-        shade: 'light',
-        type: "horizontal",
-        shadeIntensity: 0.25,
-        gradientToColors: undefined,
-        inverseColors: true,
-        opacityFrom: 0.85,
-        opacityTo: 1,
-        stops: [50, 0, 100],
-      },
+    grid: {
+      borderColor: '#f1f5f9',
+      strokeDashArray: 4
     },
-    colors: ['#fb923c', '#fdba74', '#fed7aa', '#ffedd5'],
+    colors: ['#f97316', '#fb923c', '#fdba74', '#fed7aa'],
     legend: {
-      position: 'top',
-      horizontalAlign: 'right',
-      markers: {
-        size: 12,
-        strokeWidth: 0,
-      },
+      show: false
     },
+    tooltip: {
+      theme: 'light',
+      y: {
+        formatter: function(val) {
+          return val.toFixed(1) + '%'
+        }
+      }
+    }
   }
 
-  const series = [
-    {
-      name: 'Conversion Rate',
-      data: [100, 65, 40, 24, 12],
-    },
-  ]
+  const series = [{
+    data: funnelData.map(item => item.conversion_rate)
+  }]
+
+  if (isLoading) {
+    return <div className="h-[350px] flex items-center justify-center">Loading...</div>;
+  }
 
   return (
     <div className="mt-4">

@@ -1,12 +1,31 @@
 "use client"
 
-import React from 'react'
+import { useEffect, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { ApexOptions } from 'apexcharts'
+import { getCustomerSegments } from '@/lib/api'
 
 const ReactApexChart = dynamic(() => import('react-apexcharts'), { ssr: false })
 
 export default function CustomerSegmentsChart() {
+  const [segmentData, setSegmentData] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const data = await getCustomerSegments();
+        setSegmentData(data);
+      } catch (error) {
+        console.error('Error fetching customer segments:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
+
   const options: ApexOptions = {
     chart: {
       type: 'donut',
@@ -29,8 +48,8 @@ export default function CustomerSegmentsChart() {
               fontSize: '16px',
               fontWeight: 600,
               color: '#334155',
-              formatter: function(val) {
-                return val + '%'
+              formatter: function(val: string) {
+                return parseFloat(val).toFixed(1) + '%'
               }
             },
             total: {
@@ -47,7 +66,7 @@ export default function CustomerSegmentsChart() {
         }
       }
     },
-    labels: ['Enterprise', 'SMB', 'Startups', 'Freelancers'],
+    labels: segmentData.map(segment => segment.business_size),
     dataLabels: {
       enabled: false
     },
@@ -74,14 +93,24 @@ export default function CustomerSegmentsChart() {
     tooltip: {
       enabled: true,
       y: {
-        formatter: function(val) {
-          return val + '%'
+        formatter: function(val: number) {
+          return val.toFixed(1) + '%'
         }
       }
     }
   }
 
-  const series = [35, 30, 20, 15]
+  // Calculate percentages based on total value
+  const calculatePercentages = () => {
+    const total = segmentData.reduce((sum, segment) => sum + segment.total_value, 0);
+    return segmentData.map(segment => parseFloat(((segment.total_value / total) * 100).toFixed(1)));
+  };
+
+  const series = calculatePercentages();
+
+  if (isLoading) {
+    return <div className="h-[300px] flex items-center justify-center">Loading...</div>;
+  }
 
   return (
     <div className="mt-4">

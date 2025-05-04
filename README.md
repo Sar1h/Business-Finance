@@ -160,3 +160,160 @@ For any inquiries, please reach out to:
 ---
 
 Built with ❤️ by the Bufi Team 
+
+## Database Setup
+
+### Prerequisites
+
+- MySQL Server 5.7+ or MySQL 8.0+
+- Node.js 14.0+
+- npm or yarn
+
+### Installation Steps
+
+1. **Create MySQL Database**
+
+   ```sql
+   CREATE DATABASE bufi_finance;
+   USE bufi_finance;
+   ```
+
+2. **Run Schema Script**
+
+   Save the database schema to a file (e.g., `schema.sql`) and run:
+
+   ```bash
+   mysql -u your_username -p bufi_finance < database/schema.sql
+   ```
+
+   Or you can copy and paste the contents of `database/schema.sql` into your MySQL client.
+
+3. **Seed Sample Data (Optional)**
+
+   ```bash
+   mysql -u your_username -p bufi_finance < database/seed_data.sql
+   ```
+
+4. **Configure Environment Variables**
+
+   Create a `.env.local` file in the project root with:
+
+   ```
+   DB_HOST=localhost
+   DB_USER=your_mysql_username
+   DB_PASSWORD=your_mysql_password
+   DB_NAME=bufi_finance
+   DB_PORT=3306
+
+   NEXT_PUBLIC_API_URL=http://localhost:3000/api
+   NODE_ENV=development
+   ```
+
+## Database Schema
+
+The database includes the following tables:
+
+- **users**: Application users with authentication information
+- **customer_segments**: Categories of customers
+- **customers**: Customer information and metadata
+- **revenue_categories**: Types of revenue sources
+- **expense_categories**: Types of expenses
+- **transactions**: All financial transactions (both revenue and expenses)
+- **sales_stages**: Stages in the sales pipeline
+- **sales_funnel_entries**: Customer journey through the sales pipeline
+- **cashflow_projections**: Future cash flow forecasts
+- **kpi_metrics**: Key performance indicators and targets
+
+## API Routes
+
+The application provides the following API endpoints:
+
+- **GET /api/dashboard**: Get all dashboard data in a single request
+- **GET /api/transactions**: Get transactions with optional filtering
+- **POST /api/transactions**: Create a new transaction
+- **PATCH /api/transactions/:id**: Update an existing transaction
+- **DELETE /api/transactions/:id**: Delete a transaction
+
+## Development
+
+1. **Install Dependencies**
+
+   ```bash
+   npm install
+   # or
+   yarn install
+   ```
+
+2. **Run Development Server**
+
+   ```bash
+   npm run dev
+   # or
+   yarn dev
+   ```
+
+3. **Open Application**
+
+   Navigate to [http://localhost:3000](http://localhost:3000) in your browser.
+
+## Useful MySQL Queries
+
+The `database/queries.sql` file contains a collection of useful queries for:
+
+- Dashboard overview metrics
+- Revenue and expense analysis
+- Customer segment analysis
+- Sales funnel metrics
+- Cash flow projections
+- KPI performance tracking
+- Transaction reporting
+
+## Production Deployment
+
+For production deployment:
+
+1. **Setup a Production MySQL Database**
+
+   Configure your production database and update environment variables accordingly.
+
+2. **Build the Application**
+
+   ```bash
+   npm run build
+   # or
+   yarn build
+   ```
+
+3. **Start the Production Server**
+
+   ```bash
+   npm start
+   # or
+   yarn start
+   ```
+
+## MySQL Database Management
+
+- **Backup Database**
+
+  ```bash
+  mysqldump -u username -p bufi_finance > bufi_finance_backup.sql
+  ```
+
+- **Restore Database**
+
+  ```bash
+  mysql -u username -p bufi_finance < bufi_finance_backup.sql
+  ```
+
+- **Running Direct Queries**
+
+  You can use the MySQL command line client or a GUI tool like MySQL Workbench:
+
+  ```bash
+  mysql -u username -p bufi_finance
+  ```
+
+## License
+
+This project is licensed under the MIT License. 
