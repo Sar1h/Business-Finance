@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { getMonthlyData } from '@/lib/api'
+import { MonthlyData } from '@/lib/types'
 
 // Import ApexCharts types
 import { ApexOptions } from 'apexcharts'
@@ -11,16 +12,18 @@ import { ApexOptions } from 'apexcharts'
 const ReactApexChart = dynamic(() => import('react-apexcharts'), { ssr: false })
 
 export default function ClientRevenueChart() {
-  const [monthlyData, setMonthlyData] = useState<any[]>([]);
+  const [monthlyData, setMonthlyData] = useState<MonthlyData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
         const data = await getMonthlyData();
-        setMonthlyData(data);
+        setMonthlyData(Array.isArray(data) ? data : []);
       } catch (error) {
         console.error('Error fetching monthly data:', error);
+        setError('Failed to load revenue data');
       } finally {
         setIsLoading(false);
       }
@@ -73,7 +76,7 @@ export default function ClientRevenueChart() {
         text: '₹ (thousands)',
         style: {
           color: '#71717a',
-        },
+        }
       },
       labels: {
         style: {
@@ -100,16 +103,24 @@ export default function ClientRevenueChart() {
   const series = [
     {
       name: 'Revenue',
-      data: monthlyData.map(item => parseFloat((item.revenue / 1000).toFixed(1))),
+      data: monthlyData.map(item => parseFloat(((item?.revenue || 0) / 1000).toFixed(1))),
     },
     {
       name: 'Expenses',
-      data: monthlyData.map(item => parseFloat((item.expense / 1000).toFixed(1))),
+      data: monthlyData.map(item => parseFloat(((item?.expense || 0) / 1000).toFixed(1))),
     },
   ]
 
   if (isLoading) {
     return <div className="h-[350px] flex items-center justify-center">Loading...</div>;
+  }
+  
+  if (error) {
+    return <div className="h-[350px] flex items-center justify-center text-red-500">{error}</div>;
+  }
+  
+  if (monthlyData.length === 0) {
+    return <div className="h-[350px] flex items-center justify-center">No data available</div>;
   }
 
   return (

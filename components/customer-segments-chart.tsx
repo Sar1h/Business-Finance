@@ -1,23 +1,29 @@
 "use client"
 
-import { useEffect, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import dynamic from 'next/dynamic'
-import { ApexOptions } from 'apexcharts'
 import { getCustomerSegments } from '@/lib/api'
+import { CustomerSegment } from '@/lib/types'
 
+// Import ApexCharts types
+import { ApexOptions } from 'apexcharts'
+
+// Dynamically import ApexCharts to prevent SSR issues
 const ReactApexChart = dynamic(() => import('react-apexcharts'), { ssr: false })
 
 export default function CustomerSegmentsChart() {
-  const [segmentData, setSegmentData] = useState<any[]>([]);
+  const [segmentsData, setSegmentsData] = useState<CustomerSegment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
         const data = await getCustomerSegments();
-        setSegmentData(data);
+        setSegmentsData(Array.isArray(data) ? data : []);
       } catch (error) {
-        console.error('Error fetching customer segments:', error);
+        console.error('Error fetching customer segments data:', error);
+        setError('Failed to load customer segments data');
       } finally {
         setIsLoading(false);
       }
@@ -26,90 +32,74 @@ export default function CustomerSegmentsChart() {
     fetchData();
   }, []);
 
+  const formatValue = (val: number) => {
+    return "₹ " + val.toLocaleString();
+  };
+
   const options: ApexOptions = {
     chart: {
-      type: 'donut',
+      type: 'pie',
       fontFamily: 'inherit',
+      toolbar: {
+        show: false,
+      },
     },
-    plotOptions: {
-      pie: {
-        donut: {
-          size: '60%',
-          labels: {
-            show: true,
-            name: {
-              show: true,
-              fontSize: '14px',
-              fontWeight: 500,
-              color: '#64748b',
-            },
-            value: {
-              show: true,
-              fontSize: '16px',
-              fontWeight: 600,
-              color: '#334155',
-              formatter: function(val: string) {
-                return parseFloat(val).toFixed(1) + '%'
-              }
-            },
-            total: {
-              show: true,
-              label: 'Total',
-              fontSize: '14px',
-              fontWeight: 500,
-              color: '#64748b',
-              formatter: function() {
-                return '100%'
-              }
-            }
-          }
+    labels: segmentsData.map(item => {
+      return `${item.business_size} (${item.count})`;
+    }),
+    dataLabels: {
+      enabled: true,
+      formatter: function(val: string | number): string {
+        return typeof val === 'number' ? val.toFixed(1) + '%' : val;
+      },
+    },
+    tooltip: {
+      y: {
+        formatter: function(val) {
+          return segmentsData[val] ? formatValue(segmentsData[val].total_value) : '';
         }
       }
-    },
-    labels: segmentData.map(segment => segment.business_size),
-    dataLabels: {
-      enabled: false
-    },
-    stroke: {
-      width: 1,
-      colors: ['#fff']
-    },
-    fill: {
-      opacity: 1,
-      type: 'solid'
     },
     legend: {
       position: 'bottom',
-      fontWeight: 500,
-      markers: {
-        size: 8,
-        strokeWidth: 0,
-      },
-      itemMargin: {
-        horizontal: 15
+      offsetY: 0,
+      labels: {
+        colors: '#71717a',
       }
     },
     colors: ['#f97316', '#fb923c', '#fdba74', '#fed7aa'],
-    tooltip: {
-      enabled: true,
-      y: {
-        formatter: function(val: number) {
-          return val.toFixed(1) + '%'
+    responsive: [{
+      breakpoint: 480,
+      options: {
+        chart: {
+          width: 300
+        },
+        legend: {
+          position: 'bottom'
+        }
+      }
+    }],
+    plotOptions: {
+      pie: {
+        donut: {
+          size: '50%',
         }
       }
     }
-  }
-
-  // Calculate percentages based on total value
-  const calculatePercentages = () => {
-    const total = segmentData.reduce((sum, segment) => sum + segment.total_value, 0);
-    return segmentData.map(segment => parseFloat(((segment.total_value / total) * 100).toFixed(1)));
   };
 
-  const series = calculatePercentages();
+  const series = segmentsData.map(item => item?.count || 0);
 
   if (isLoading) {
-    return <div className="h-[300px] flex items-center justify-center">Loading...</div>;
+    return <div className="h-[350px] flex items-center justify-center">Loading...</div>;
+  }
+
+  if (error) {
+    return <div className="h-[350px] flex items-center justify-center text-red-500">{error}</div>;
+  }
+  
+  if (segmentsData.length === 0) {
+    return <div className="h-[350px] flex items-center justify-center">No data available</div>;
   }
 
   return (
@@ -118,8 +108,8 @@ export default function CustomerSegmentsChart() {
         <ReactApexChart 
           options={options}
           series={series}
-          type="donut"
-          height={300}
+          type="pie"
+          height={350}
         />
       )}
     </div>

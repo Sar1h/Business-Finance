@@ -1,23 +1,29 @@
 "use client"
 
-import { useEffect, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import dynamic from 'next/dynamic'
-import { ApexOptions } from 'apexcharts'
 import { getCashflowTimeline } from '@/lib/api'
+import { CashflowData } from '@/lib/types'
 
+// Import ApexCharts types
+import { ApexOptions } from 'apexcharts'
+
+// Dynamically import ApexCharts to prevent SSR issues
 const ReactApexChart = dynamic(() => import('react-apexcharts'), { ssr: false })
 
 export default function CashflowTimelineChart() {
-  const [cashflowData, setCashflowData] = useState<any[]>([]);
+  const [cashflowData, setCashflowData] = useState<CashflowData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
         const data = await getCashflowTimeline();
-        setCashflowData(data);
+        setCashflowData(Array.isArray(data) ? data : []);
       } catch (error) {
         console.error('Error fetching cashflow data:', error);
+        setError('Failed to load cashflow data');
       } finally {
         setIsLoading(false);
       }
@@ -26,101 +32,108 @@ export default function CashflowTimelineChart() {
     fetchData();
   }, []);
 
+  const formatValue = (val: number) => {
+    return "₹ " + val.toLocaleString();
+  };
+
   const options: ApexOptions = {
     chart: {
-      type: 'area',
-      fontFamily: 'inherit',
+      height: 350,
+      type: 'line',
       toolbar: {
-        show: false,
-      },
-      zoom: {
-        enabled: false,
-      },
+        show: false
+      }
     },
-    dataLabels: {
-      enabled: false,
-    },
+    colors: ['#f97316', '#94a3b8', '#22c55e', '#a1a1aa'],
     stroke: {
+      width: [4, 3, 4, 2],
       curve: 'smooth',
-      width: 3,
-    },
-    grid: {
-      borderColor: '#f1f5f9',
-      strokeDashArray: 4,
-      padding: {
-        top: 0,
-        right: 0,
-        bottom: 0,
-        left: 10,
-      },
+      dashArray: [0, 0, 0, 4]
     },
     xaxis: {
+      type: 'category',
       categories: cashflowData.map(item => {
         const date = new Date(item.projection_date);
-        return date.toLocaleString('default', { month: 'short' });
+        return date.toLocaleString('default', { month: 'short', year: '2-digit' });
       }),
       labels: {
         style: {
           colors: '#71717a',
-        },
-      },
-      axisBorder: {
-        show: false,
-      },
-      axisTicks: {
-        show: false,
-      },
+        }
+      }
     },
     yaxis: {
+      title: {
+        text: 'Amount (₹)',
+        style: {
+          color: '#71717a',
+        }
+      },
       labels: {
         style: {
           colors: '#71717a',
         },
-        formatter: function(val: number) {
-          return '₹' + (val / 1000).toFixed(0) + 'k'
-        },
-      },
+        formatter: (value) => {
+          return "₹" + value.toLocaleString(undefined, { maximumFractionDigits: 0 });
+        }
+      }
     },
     tooltip: {
+      theme: 'light',
       y: {
-        formatter: function(val: number) {
-          return '₹' + (val / 1000).toFixed(2) + 'k'
-        },
-      },
+        formatter: formatValue
+      }
     },
-    fill: {
-      type: 'gradient',
-      gradient: {
-        shadeIntensity: 1,
-        opacityFrom: 0.7,
-        opacityTo: 0.2,
-        stops: [0, 90, 100],
-      },
+    grid: {
+      borderColor: '#f1f5f9',
+      strokeDashArray: 4,
     },
-    colors: ['#f97316', '#94a3b8'],
     legend: {
       position: 'top',
       horizontalAlign: 'right',
-      markers: {
-        size: 8,
-        strokeWidth: 0,
-      },
+      offsetX: -10,
+      labels: {
+        colors: '#71717a',
+      }
     },
-  }
+    markers: {
+      size: 4,
+      strokeWidth: 0,
+      hover: {
+        size: 6
+      }
+    }
+  };
 
   const series = [
     {
-      name: 'Cash In',
-      data: cashflowData.map(item => item.actual_inflow || item.projected_inflow),
+      name: 'Projected Net',
+      data: cashflowData.map(item => item?.projected_net || null)
     },
     {
-      name: 'Cash Out',
-      data: cashflowData.map(item => item.actual_outflow || item.projected_outflow),
+      name: 'Projected Inflow',
+      data: cashflowData.map(item => item?.projected_inflow || null)
     },
-  ]
+    {
+      name: 'Actual Net',
+      data: cashflowData.map(item => item?.actual_net || null)
+    },
+    {
+      name: 'Actual Inflow',
+      data: cashflowData.map(item => item?.actual_inflow || null)
+    }
+  ];
 
   if (isLoading) {
     return <div className="h-[350px] flex items-center justify-center">Loading...</div>;
+  }
+
+  if (error) {
+    return <div className="h-[350px] flex items-center justify-center text-red-500">{error}</div>;
+  }
+  
+  if (cashflowData.length === 0) {
+    return <div className="h-[350px] flex items-center justify-center">No data available</div>;
   }
 
   return (
@@ -129,7 +142,7 @@ export default function CashflowTimelineChart() {
         <ReactApexChart 
           options={options}
           series={series}
-          type="area"
+          type="line"
           height={350}
         />
       )}

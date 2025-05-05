@@ -45,4 +45,39 @@ export async function getKpiMetrics() {
 export async function getRecentTransactions() {
   const data = await fetchDashboardData();
   return data.recentTransactions;
+}
+
+export async function getCustomerGrowth() {
+  const data = await fetchDashboardData();
+  return data.customerGrowth;
+}
+
+export async function getCustomerLifetimeValue() {
+  const data = await fetchDashboardData();
+  return data.customerLifetimeValue;
+}
+
+export async function getRevenueByCustomerAge() {
+  const data = await fetchDashboardData();
+  return data.revenueByCustomerAge;
+}
+
+export async function getRecurringRevenue() {
+  const data = await fetchDashboardData();
+  return data.recurringRevenue;
+}
+
+export async function getExpenseTrends() {
+  const data = await fetchDashboardData();
+  return data.expenseTrends;
+}
+
+export async function getDealVelocity() {
+  const data = await fetchDashboardData();
+  return data.dealVelocity;
+}
+
+export async function getCustomerProfitability() {
+  const data = await fetchDashboardData();
+  return data.customerProfitability;
 } 

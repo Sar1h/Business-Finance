@@ -41,14 +41,14 @@ async function query<T>(sql: string, params: any[] = []): Promise<T[]> {
 }
 
 /**
- * Get the current month's financial summary
+ * Get the current month's financial summary using the updated schema
  * @returns {Promise<FinancialSummary>} - Financial summary
  */
 export async function getFinancialSummary(): Promise<FinancialSummary> {
   const currentMonth = new Date().getMonth() + 1;
   const currentYear = new Date().getFullYear();
   
-  // Get monthly revenue
+  // Get monthly revenue using the transactions table with type 'revenue'
   const revenueQuery = `
     SELECT SUM(amount) as monthly_revenue
     FROM transactions
@@ -57,7 +57,7 @@ export async function getFinancialSummary(): Promise<FinancialSummary> {
     AND YEAR(transaction_date) = ?
   `;
   
-  // Get monthly expenses
+  // Get monthly expenses using the transactions table with type 'expense'
   const expensesQuery = `
     SELECT SUM(amount) as monthly_expenses
     FROM transactions
@@ -66,11 +66,11 @@ export async function getFinancialSummary(): Promise<FinancialSummary> {
     AND YEAR(transaction_date) = ?
   `;
   
-  // Get cash balance
+  // Get cash balance as the difference between total revenue and expenses
   const cashBalanceQuery = `
     SELECT 
-      (SELECT SUM(amount) FROM transactions WHERE type = 'revenue') - 
-      (SELECT SUM(amount) FROM transactions WHERE type = 'expense') 
+      (SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE type = 'revenue') - 
+      (SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE type = 'expense') 
       as cash_balance
   `;
   
@@ -133,7 +133,7 @@ export async function getFinancialSummary(): Promise<FinancialSummary> {
 }
 
 /**
- * Get the last 6 months of revenue and expenses data
+ * Get the last 6 months of revenue and expenses data from transactions table
  * @returns {Promise<MonthlyData[]>} - Monthly data
  */
 export async function getMonthlyRevenueExpenses(): Promise<MonthlyData[]> {
@@ -157,7 +157,7 @@ export async function getMonthlyRevenueExpenses(): Promise<MonthlyData[]> {
 }
 
 /**
- * Get customer segments distribution
+ * Get customer segments distribution from customers table
  * @returns {Promise<CustomerSegment[]>} - Customer segments data
  */
 export async function getCustomerSegments(): Promise<CustomerSegment[]> {
@@ -180,21 +180,20 @@ export async function getCustomerSegments(): Promise<CustomerSegment[]> {
 }
 
 /**
- * Get sales funnel data
+ * Get sales funnel data from sales_pipeline table
  * @returns {Promise<SalesFunnelData[]>} - Sales funnel data
  */
 export async function getSalesFunnel(): Promise<SalesFunnelData[]> {
   const sql = `
     SELECT 
-      ss.stage_name,
-      ss.stage_order,
-      COUNT(sfe.id) AS entries,
-      SUM(CASE WHEN sfe.converted = TRUE THEN 1 ELSE 0 END) AS conversions,
-      (SUM(CASE WHEN sfe.converted = TRUE THEN 1 ELSE 0 END) / COUNT(sfe.id)) * 100 AS conversion_rate
-    FROM sales_funnel_entries sfe
-    JOIN sales_stages ss ON sfe.stage_id = ss.id
-    GROUP BY ss.stage_name, ss.stage_order
-    ORDER BY ss.stage_order
+      stage_name,
+      stage_order,
+      COUNT(id) AS entries,
+      SUM(CASE WHEN exit_date IS NOT NULL THEN 1 ELSE 0 END) AS conversions,
+      (SUM(CASE WHEN exit_date IS NOT NULL THEN 1 ELSE 0 END) / COUNT(id)) * 100 AS conversion_rate
+    FROM sales_pipeline
+    GROUP BY stage_name, stage_order
+    ORDER BY stage_order
   `;
   
   try {
@@ -206,21 +205,21 @@ export async function getSalesFunnel(): Promise<SalesFunnelData[]> {
 }
 
 /**
- * Get cashflow timeline data
+ * Get cashflow timeline data from cashflow table
  * @returns {Promise<CashflowData[]>} - Cashflow data
  */
 export async function getCashflowTimeline(): Promise<CashflowData[]> {
   const sql = `
     SELECT 
-      projection_date,
+      period_date as projection_date,
       projected_inflow,
       projected_outflow,
       actual_inflow,
       actual_outflow,
       (projected_inflow - projected_outflow) AS projected_net,
       (actual_inflow - actual_outflow) AS actual_net
-    FROM cashflow_projections
-    ORDER BY projection_date
+    FROM cashflow
+    ORDER BY period_date
   `;
   
   try {
@@ -232,23 +231,84 @@ export async function getCashflowTimeline(): Promise<CashflowData[]> {
 }
 
 /**
- * Get KPI metrics data
+ * Get KPI metrics data - For now, this returns mock data since there's no KPI table in the schema
+ * We'll calculate KPIs from existing data
  * @returns {Promise<KpiMetric[]>} - KPI metrics
  */
 export async function getKpiMetrics(): Promise<KpiMetric[]> {
-  const sql = `
+  // Calculate profit margin from transactions
+  const profitMarginSql = `
     SELECT 
-      metric_name,
-      metric_value,
-      target_value,
-      metric_type,
-      description
-    FROM kpi_metrics
-    WHERE metric_date = (SELECT MAX(metric_date) FROM kpi_metrics)
+      'Profit Margin' as metric_name,
+      (SUM(CASE WHEN type = 'revenue' THEN amount ELSE 0 END) - 
+       SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END)) / 
+       NULLIF(SUM(CASE WHEN type = 'revenue' THEN amount ELSE 0 END), 0) * 100 as metric_value,
+      80 as target_value,
+      'percentage' as metric_type,
+      'Net profit as a percentage of revenue' as description
+    FROM transactions
+    WHERE transaction_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 3 MONTH)
+  `;
+  
+  // Calculate customer retention rate
+  const customerRetentionSql = `
+    SELECT 
+      'Customer Retention' as metric_name,
+      COUNT(DISTINCT customer_id) * 100 / 
+      (SELECT COUNT(DISTINCT id) FROM customers) as metric_value,
+      90 as target_value,
+      'percentage' as metric_type,
+      'Percentage of customers with repeat purchases' as description
+    FROM transactions
+    WHERE type = 'revenue'
+    AND transaction_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 6 MONTH)
+  `;
+  
+  // Calculate average deal size
+  const avgDealSizeSql = `
+    SELECT 
+      'Average Deal Size' as metric_name,
+      AVG(amount) as metric_value,
+      10000 as target_value,
+      'currency' as metric_type,
+      'Average revenue transaction amount' as description
+    FROM transactions
+    WHERE type = 'revenue'
+    AND transaction_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 3 MONTH)
+  `;
+  
+  // Calculate cash runway
+  const cashRunwaySql = `
+    SELECT 
+      'Cash Runway' as metric_name,
+      (SELECT 
+        (SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE type = 'revenue') - 
+        (SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE type = 'expense')
+      ) / 
+      (
+        SELECT AVG(monthly_expense) FROM (
+          SELECT 
+            YEAR(transaction_date) as year, 
+            MONTH(transaction_date) as month, 
+            SUM(amount) as monthly_expense
+          FROM transactions
+          WHERE type = 'expense'
+          AND transaction_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 3 MONTH)
+          GROUP BY YEAR(transaction_date), MONTH(transaction_date)
+        ) as monthly_expenses
+      ) as metric_value,
+      12 as target_value,
+      'months' as metric_type,
+      'Months of operation possible with current cash' as description
   `;
   
   try {
-    return await query<KpiMetric>(sql);
+    const [profitMargin] = await query<KpiMetric>(profitMarginSql);
+    const [customerRetention] = await query<KpiMetric>(customerRetentionSql);
+    const [avgDealSize] = await query<KpiMetric>(avgDealSizeSql);
+    const [cashRunway] = await query<KpiMetric>(cashRunwaySql);
+    
+    return [profitMargin, customerRetention, avgDealSize, cashRunway];
   } catch (error) {
     console.error('Error getting KPI metrics:', error);
     throw error;
@@ -263,28 +323,23 @@ export async function getKpiMetrics(): Promise<KpiMetric[]> {
 export async function getRecentTransactions(limit: number = 10): Promise<Transaction[]> {
   const sql = `
     SELECT 
-      t.id,
-      t.transaction_date,
-      t.description,
-      t.amount,
+      t.id, 
+      t.transaction_date, 
+      t.description, 
+      t.amount, 
       t.type,
-      CASE 
-        WHEN t.type = 'revenue' THEN (SELECT category_name FROM revenue_categories WHERE id = t.category_id)
-        WHEN t.type = 'expense' THEN (SELECT category_name FROM expense_categories WHERE id = t.category_id)
-      END AS category,
-      CASE 
-        WHEN t.customer_id IS NOT NULL THEN (SELECT name FROM customers WHERE id = t.customer_id)
-        ELSE NULL
-      END AS customer
+      c.category_name as category,
+      cu.name as customer,
+      t.recurring
     FROM transactions t
+    LEFT JOIN categories c ON t.category_id = c.id
+    LEFT JOIN customers cu ON t.customer_id = cu.id
     ORDER BY t.transaction_date DESC
     LIMIT ?
   `;
   
   try {
-    // Ensure limit is a positive integer and pass it directly
-    const sanitizedLimit = Math.max(1, Math.floor(Number(limit)));
-    return await query<Transaction>(sql, [sanitizedLimit]);
+    return await query<Transaction>(sql, [limit]);
   } catch (error) {
     console.error('Error getting recent transactions:', error);
     throw error;
@@ -292,26 +347,33 @@ export async function getRecentTransactions(limit: number = 10): Promise<Transac
 }
 
 /**
- * Get customer growth rate data
+ * Get customer growth rate over time
  * @returns {Promise<CustomerGrowth[]>} - Customer growth data
  */
 export async function getCustomerGrowthRate(): Promise<CustomerGrowth[]> {
   const sql = `
     SELECT 
-      DATE_FORMAT(acquisition_date, '%Y-%m') as month,
-      COUNT(*) as new_customers,
-      COUNT(*) / (
-          SELECT COUNT(*) 
-          FROM customers 
-          WHERE acquisition_date < DATE_FORMAT(c.acquisition_date, '%Y-%m-01')
-      ) * 100 as growth_rate
-    FROM customers c
+      DATE_FORMAT(acquisition_date, '%Y-%m') AS month,
+      COUNT(id) AS new_customers,
+      0 AS growth_rate
+    FROM customers
+    WHERE acquisition_date IS NOT NULL
     GROUP BY DATE_FORMAT(acquisition_date, '%Y-%m')
     ORDER BY month
+    LIMIT 12
   `;
   
   try {
-    return await query<CustomerGrowth>(sql);
+    const results = await query<CustomerGrowth>(sql);
+    
+    // Calculate growth rate
+    for (let i = 1; i < results.length; i++) {
+      const prevCustomers = results[i-1].new_customers;
+      const currentCustomers = results[i].new_customers;
+      results[i].growth_rate = prevCustomers ? ((currentCustomers - prevCustomers) / prevCustomers) * 100 : 0;
+    }
+    
+    return results;
   } catch (error) {
     console.error('Error getting customer growth rate:', error);
     throw error;
@@ -319,19 +381,20 @@ export async function getCustomerGrowthRate(): Promise<CustomerGrowth[]> {
 }
 
 /**
- * Get customer lifetime value analysis
+ * Get customer lifetime value by business size
  * @returns {Promise<CustomerLifetimeValue[]>} - Customer LTV data
  */
 export async function getCustomerLifetimeValue(): Promise<CustomerLifetimeValue[]> {
   const sql = `
     SELECT 
       business_size,
-      AVG(lifetime_value) as avg_ltv,
-      MIN(lifetime_value) as min_ltv,
-      MAX(lifetime_value) as max_ltv,
-      STDDEV(lifetime_value) as ltv_stddev
+      AVG(lifetime_value) AS avg_ltv,
+      MIN(lifetime_value) AS min_ltv,
+      MAX(lifetime_value) AS max_ltv,
+      STDDEV(lifetime_value) AS ltv_stddev
     FROM customers
     GROUP BY business_size
+    ORDER BY avg_ltv DESC
   `;
   
   try {
@@ -343,32 +406,39 @@ export async function getCustomerLifetimeValue(): Promise<CustomerLifetimeValue[
 }
 
 /**
- * Get revenue by customer age
+ * Get revenue by customer age (how long they've been customers)
  * @returns {Promise<RevenueByCustomerAge[]>} - Revenue by customer age data
  */
 export async function getRevenueByCustomerAge(): Promise<RevenueByCustomerAge[]> {
   const sql = `
     SELECT 
       CASE 
-        WHEN DATEDIFF(CURRENT_DATE, acquisition_date) <= 90 THEN '0-3 months'
-        WHEN DATEDIFF(CURRENT_DATE, acquisition_date) <= 180 THEN '3-6 months'
-        WHEN DATEDIFF(CURRENT_DATE, acquisition_date) <= 365 THEN '6-12 months'
+        WHEN DATEDIFF(CURRENT_DATE, c.acquisition_date) <= 90 THEN 'Less than 3 months'
+        WHEN DATEDIFF(CURRENT_DATE, c.acquisition_date) <= 180 THEN '3-6 months'
+        WHEN DATEDIFF(CURRENT_DATE, c.acquisition_date) <= 365 THEN '6-12 months'
         ELSE 'Over 12 months'
-      END as customer_age,
-      SUM(t.amount) as total_revenue,
-      COUNT(DISTINCT t.customer_id) as customer_count,
-      SUM(t.amount) / COUNT(DISTINCT t.customer_id) as avg_revenue_per_customer
+      END AS customer_age,
+      SUM(t.amount) AS total_revenue,
+      COUNT(DISTINCT c.id) AS customer_count,
+      SUM(t.amount) / COUNT(DISTINCT c.id) AS avg_revenue_per_customer
     FROM transactions t
     JOIN customers c ON t.customer_id = c.id
     WHERE t.type = 'revenue'
+    AND c.acquisition_date IS NOT NULL
     GROUP BY 
       CASE 
-        WHEN DATEDIFF(CURRENT_DATE, acquisition_date) <= 90 THEN '0-3 months'
-        WHEN DATEDIFF(CURRENT_DATE, acquisition_date) <= 180 THEN '3-6 months'
-        WHEN DATEDIFF(CURRENT_DATE, acquisition_date) <= 365 THEN '6-12 months'
+        WHEN DATEDIFF(CURRENT_DATE, c.acquisition_date) <= 90 THEN 'Less than 3 months'
+        WHEN DATEDIFF(CURRENT_DATE, c.acquisition_date) <= 180 THEN '3-6 months'
+        WHEN DATEDIFF(CURRENT_DATE, c.acquisition_date) <= 365 THEN '6-12 months'
         ELSE 'Over 12 months'
       END
-    ORDER BY customer_age
+    ORDER BY 
+      CASE 
+        WHEN customer_age = 'Less than 3 months' THEN 1
+        WHEN customer_age = '3-6 months' THEN 2
+        WHEN customer_age = '6-12 months' THEN 3
+        ELSE 4
+      END
   `;
   
   try {
@@ -386,13 +456,14 @@ export async function getRevenueByCustomerAge(): Promise<RevenueByCustomerAge[]>
 export async function getRecurringRevenue(): Promise<RecurringRevenue[]> {
   const sql = `
     SELECT 
-      DATE_FORMAT(transaction_date, '%Y-%m') as month,
-      SUM(CASE WHEN recurring = TRUE THEN amount ELSE 0 END) as recurring_revenue,
-      SUM(CASE WHEN recurring = FALSE THEN amount ELSE 0 END) as non_recurring_revenue,
-      COUNT(CASE WHEN recurring = TRUE THEN 1 END) as recurring_transactions,
-      COUNT(CASE WHEN recurring = FALSE THEN 1 END) as non_recurring_transactions
+      DATE_FORMAT(transaction_date, '%Y-%m') AS month,
+      SUM(CASE WHEN recurring = TRUE THEN amount ELSE 0 END) AS recurring_revenue,
+      SUM(CASE WHEN recurring = FALSE THEN amount ELSE 0 END) AS non_recurring_revenue,
+      COUNT(CASE WHEN recurring = TRUE THEN 1 END) AS recurring_transactions,
+      COUNT(CASE WHEN recurring = FALSE THEN 1 END) AS non_recurring_transactions
     FROM transactions
     WHERE type = 'revenue'
+    AND transaction_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 6 MONTH)
     GROUP BY DATE_FORMAT(transaction_date, '%Y-%m')
     ORDER BY month
   `;
@@ -412,20 +483,26 @@ export async function getRecurringRevenue(): Promise<RecurringRevenue[]> {
 export async function getExpenseTrends(): Promise<ExpenseTrend[]> {
   const sql = `
     SELECT 
-      ec.category_name,
-      DATE_FORMAT(t.transaction_date, '%Y-%m') as month,
-      SUM(t.amount) as total_expense,
-      SUM(t.amount) / (
+      c.category_name,
+      month_year.month_val AS month,
+      SUM(t.amount) AS total_expense,
+      (SUM(t.amount) / (
         SELECT SUM(amount) 
         FROM transactions 
         WHERE type = 'expense' 
-        AND DATE_FORMAT(transaction_date, '%Y-%m') = DATE_FORMAT(t.transaction_date, '%Y-%m')
-      ) * 100 as percentage_of_monthly_expense
+        AND DATE_FORMAT(transaction_date, '%Y-%m') = month_year.month_val
+      )) * 100 AS percentage_of_monthly_expense
     FROM transactions t
-    JOIN expense_categories ec ON t.category_id = ec.id
+    JOIN categories c ON t.category_id = c.id
+    JOIN (
+      SELECT DISTINCT DATE_FORMAT(transaction_date, '%Y-%m') AS month_val
+      FROM transactions
+      WHERE transaction_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 6 MONTH)
+    ) month_year ON DATE_FORMAT(t.transaction_date, '%Y-%m') = month_year.month_val
     WHERE t.type = 'expense'
-    GROUP BY ec.category_name, DATE_FORMAT(t.transaction_date, '%Y-%m')
-    ORDER BY month, total_expense DESC
+    AND t.transaction_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 6 MONTH)
+    GROUP BY c.category_name, month_year.month_val
+    ORDER BY month_year.month_val, total_expense DESC
   `;
   
   try {
@@ -437,22 +514,22 @@ export async function getExpenseTrends(): Promise<ExpenseTrend[]> {
 }
 
 /**
- * Get deal velocity metrics
+ * Get deal velocity from sales pipeline
  * @returns {Promise<DealVelocity[]>} - Deal velocity data
  */
 export async function getDealVelocity(): Promise<DealVelocity[]> {
   const sql = `
     SELECT 
-      ss.stage_name,
-      COUNT(sfe.id) as total_deals,
-      AVG(DATEDIFF(COALESCE(sfe.exit_date, CURRENT_DATE), sfe.entry_date)) as avg_days_in_stage,
-      SUM(sfe.value) / COUNT(sfe.id) as avg_deal_value,
-      SUM(CASE WHEN sfe.converted = TRUE THEN 1 ELSE 0 END) / COUNT(sfe.id) * 100 as conversion_rate
-    FROM sales_funnel_entries sfe
-    JOIN sales_stages ss ON sfe.stage_id = ss.id
-    WHERE sfe.entry_date >= DATE_SUB(CURRENT_DATE, INTERVAL 6 MONTH)
-    GROUP BY ss.stage_name, ss.stage_order
-    ORDER BY ss.stage_order
+      stage_name,
+      MAX(stage_order) AS stage_order,
+      COUNT(id) AS total_deals,
+      AVG(DATEDIFF(IFNULL(exit_date, CURRENT_DATE), entry_date)) AS avg_days_in_stage,
+      AVG(value) AS avg_deal_value,
+      SUM(CASE WHEN exit_date IS NOT NULL THEN 1 ELSE 0 END) / COUNT(id) * 100 AS conversion_rate
+    FROM sales_pipeline
+    WHERE entry_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 6 MONTH)
+    GROUP BY stage_name
+    ORDER BY MAX(stage_order)
   `;
   
   try {
@@ -470,18 +547,22 @@ export async function getDealVelocity(): Promise<DealVelocity[]> {
 export async function getCustomerProfitability(): Promise<CustomerProfitability[]> {
   const sql = `
     SELECT 
-      c.name as customer_name,
+      c.name AS customer_name,
       c.business_size,
-      SUM(CASE WHEN t.type = 'revenue' THEN t.amount ELSE 0 END) as total_revenue,
-      SUM(CASE WHEN t.type = 'expense' THEN t.amount ELSE 0 END) as total_cost,
-      SUM(CASE WHEN t.type = 'revenue' THEN t.amount ELSE -t.amount END) as profit,
-      (SUM(CASE WHEN t.type = 'revenue' THEN t.amount ELSE -t.amount END) / 
-       SUM(CASE WHEN t.type = 'revenue' THEN t.amount ELSE 0 END)) * 100 as profit_margin
-    FROM customers c
-    LEFT JOIN transactions t ON c.id = t.customer_id
-    GROUP BY c.id, c.name, c.business_size
-    HAVING total_revenue > 0
-    ORDER BY profit_margin DESC
+      SUM(CASE WHEN t.type = 'revenue' THEN t.amount ELSE 0 END) AS total_revenue,
+      SUM(CASE WHEN t.type = 'expense' THEN t.amount ELSE 0 END) AS total_cost,
+      SUM(CASE WHEN t.type = 'revenue' THEN t.amount ELSE -t.amount END) AS profit,
+      CASE 
+        WHEN SUM(CASE WHEN t.type = 'revenue' THEN t.amount ELSE 0 END) > 0 
+        THEN SUM(CASE WHEN t.type = 'revenue' THEN t.amount ELSE -t.amount END) / 
+             SUM(CASE WHEN t.type = 'revenue' THEN t.amount ELSE 0 END) * 100
+        ELSE 0 
+      END AS profit_margin
+    FROM transactions t
+    JOIN customers c ON t.customer_id = c.id
+    GROUP BY c.name, c.business_size
+    ORDER BY profit DESC
+    LIMIT 10
   `;
   
   try {

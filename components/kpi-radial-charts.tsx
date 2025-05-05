@@ -2,118 +2,28 @@
 
 import React, { useEffect, useState } from 'react'
 import dynamic from 'next/dynamic'
-import { ApexOptions } from 'apexcharts'
 import { getKpiMetrics } from '@/lib/api'
+import { KpiMetric } from '@/lib/types'
 
+// Import ApexCharts types
+import { ApexOptions } from 'apexcharts'
+
+// Dynamically import ApexCharts to prevent SSR issues
 const ReactApexChart = dynamic(() => import('react-apexcharts'), { ssr: false })
 
-interface KpiChartProps {
-  title: string
-  value: number
-  color: string
-  suffix?: string
-}
-
-const KpiChart = ({ title, value, color, suffix = '%' }: KpiChartProps) => {
-  const options: ApexOptions = {
-    chart: {
-      height: 150,
-      type: 'radialBar',
-      fontFamily: 'inherit',
-      toolbar: {
-        show: false,
-      },
-    },
-    plotOptions: {
-      radialBar: {
-        startAngle: -135,
-        endAngle: 135,
-        hollow: {
-          margin: 0,
-          size: '70%',
-        },
-        track: {
-          background: '#e2e8f0',
-          strokeWidth: '97%',
-          margin: 5,
-          dropShadow: {
-            enabled: false,
-          }
-        },
-        dataLabels: {
-          name: {
-            show: false,
-          },
-          value: {
-            fontSize: '22px',
-            fontWeight: 600,
-            color: '#334155',
-            offsetY: 10,
-            formatter: function(val) {
-              return val + suffix
-            }
-          }
-        }
-      }
-    },
-    fill: {
-      type: 'gradient',
-      gradient: {
-        shade: 'dark',
-        type: 'horizontal',
-        shadeIntensity: 0.5,
-        gradientToColors: [color],
-        inverseColors: true,
-        opacityFrom: 1,
-        opacityTo: 1,
-        stops: [0, 100]
-      }
-    },
-    stroke: {
-      dashArray: 4
-    },
-    colors: [color],
-  }
-
-  const series = [value]
-
-  return (
-    <div className="flex flex-col items-center">
-      {typeof window !== 'undefined' && (
-        <ReactApexChart 
-          options={options}
-          series={series}
-          type="radialBar"
-          height={180}
-          width={160}
-        />
-      )}
-      <span className="mt-2 text-sm font-medium text-gray-600">{title}</span>
-    </div>
-  )
-}
-
 export default function KpiRadialCharts() {
-  const [kpiData, setKpiData] = useState<any>({
-    salesTarget: 0,
-    customerRetention: 0,
-    profitMargin: 0,
-    roi: 0
-  });
+  const [kpiMetrics, setKpiMetrics] = useState<KpiMetric[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
         const data = await getKpiMetrics();
-        const metrics = data.reduce((acc: any, metric: any) => {
-          acc[metric.metric_name.toLowerCase().replace(/\s+/g, '')] = parseFloat(metric.metric_value);
-          return acc;
-        }, {});
-        
-        setKpiData(metrics);
+        setKpiMetrics(Array.isArray(data) ? data : []);
       } catch (error) {
         console.error('Error fetching KPI metrics:', error);
+        setError('Failed to load KPI metrics');
       } finally {
         setIsLoading(false);
       }
@@ -122,16 +32,115 @@ export default function KpiRadialCharts() {
     fetchData();
   }, []);
 
+  const getFormatter = (metric: KpiMetric) => {
+    switch (metric.metric_type) {
+      case 'percentage':
+        return (val: number) => `${val.toFixed(1)}%`;
+      case 'currency':
+        return (val: number) => `₹${val.toLocaleString()}`;
+      case 'months':
+        return (val: number) => `${val.toFixed(1)} mo`;
+      default:
+        return (val: number) => val.toString();
+    }
+  };
+
+  const getColor = (metric: KpiMetric) => {
+    const progress = (metric.metric_value / metric.target_value) * 100;
+    if (progress >= 100) return '#22c55e'; // Green
+    if (progress >= 70) return '#f97316';  // Orange
+    return '#ef4444';                      // Red
+  };
+
+  const getOptions = (metric: KpiMetric): ApexOptions => {
+    return {
+      chart: {
+        height: 200,
+        type: 'radialBar',
+        fontFamily: 'inherit',
+        toolbar: {
+          show: false,
+        },
+      },
+      plotOptions: {
+        radialBar: {
+          startAngle: -135,
+          endAngle: 135,
+          hollow: {
+            margin: 0,
+            size: '70%',
+          },
+          track: {
+            background: '#e2e8f0',
+            strokeWidth: '97%',
+            margin: 5,
+          },
+          dataLabels: {
+            name: {
+              show: true,
+              fontSize: '14px',
+              fontWeight: 600,
+              color: '#334155',
+              offsetY: -10
+            },
+            value: {
+              formatter: getFormatter(metric),
+              fontSize: '20px',
+              fontWeight: 700,
+              color: '#334155',
+              offsetY: 5
+            }
+          }
+        }
+      },
+      fill: {
+        type: 'gradient',
+        gradient: {
+          shade: 'dark',
+          type: 'horizontal',
+          shadeIntensity: 0.5,
+          gradientToColors: [getColor(metric)],
+          inverseColors: true,
+          opacityFrom: 1,
+          opacityTo: 1,
+          stops: [0, 100]
+        }
+      },
+      stroke: {
+        dashArray: 3
+      },
+      labels: [metric.metric_name],
+      colors: [getColor(metric)]
+    };
+  };
+
   if (isLoading) {
-    return <div className="h-[180px] w-full flex items-center justify-center">Loading KPIs...</div>;
+    return <div className="h-[180px] flex items-center justify-center">Loading KPI metrics...</div>;
+  }
+
+  if (error) {
+    return <div className="h-[180px] flex items-center justify-center text-red-500">{error}</div>;
+  }
+  
+  if (kpiMetrics.length === 0) {
+    return <div className="h-[180px] flex items-center justify-center">No KPI data available</div>;
   }
 
   return (
-    <div className="grid grid-cols-2 gap-6 sm:grid-cols-4">
-      <KpiChart title="Sales Target" value={kpiData.salestarget || 0} color="#f97316" />
-      <KpiChart title="Customer Retention" value={kpiData.customerretention || 0} color="#fb923c" />
-      <KpiChart title="Profit Margin" value={kpiData.profitmargin || 0} color="#fdba74" />
-      <KpiChart title="ROI" value={kpiData.roi || 0} color="#ea580c" suffix="%" />
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      {kpiMetrics.map((metric, index) => (
+        <div key={index}>
+          {typeof window !== 'undefined' && (
+            <ReactApexChart
+              options={getOptions(metric)}
+              series={[Math.min(100, (metric.metric_value / metric.target_value) * 100)]}
+              type="radialBar"
+              height={180}
+            />
+          )}
+          <div className="text-center text-xs text-gray-500 -mt-4">{metric.description}</div>
+        </div>
+      ))}
     </div>
   )
 } 
