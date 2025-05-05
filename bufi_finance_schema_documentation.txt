@@ -1,0 +1,372 @@
+# Bufi Financial Dashboard - Database Schema Documentation
+
+## Table of Contents
+1. Introduction
+2. Database Overview
+3. Table Structures and Relationships
+4. Example Data and Use Cases
+5. Performance Optimization
+6. Best Practices
+
+## 1. Introduction
+
+The Bufi Financial Dashboard database is designed to manage financial operations, customer relationships, and business performance metrics for small to medium-sized enterprises (SMEs). This documentation provides a detailed explanation of the database schema, including table structures, relationships, and example use cases.
+
+## 2. Database Overview
+
+The database consists of ten main tables:
+- users
+- customer_segments
+- customers
+- revenue_categories
+- expense_categories
+- transactions
+- sales_stages
+- sales_funnel_entries
+- cashflow_projections
+- kpi_metrics
+
+Each table is designed with specific purposes and relationships to provide a comprehensive financial management system.
+
+## 3. Table Structures and Relationships
+
+### 3.1 Users Table
+```sql
+CREATE TABLE users (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  username VARCHAR(50) NOT NULL UNIQUE,
+  password VARCHAR(255) NOT NULL,
+  email VARCHAR(100) NOT NULL UNIQUE,
+  full_name VARCHAR(100),
+  role ENUM('admin', 'user') DEFAULT 'user',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+```
+
+Purpose: Manages system users and their access levels.
+
+Example data:
+```sql
+INSERT INTO users (username, password, email, full_name, role) VALUES
+('john_admin', 'hashed_password_here', 'john@bufi.com', 'John Smith', 'admin'),
+('sarah_user', 'hashed_password_here', 'sarah@bufi.com', 'Sarah Johnson', 'user');
+```
+
+### 3.2 Customer Segments Table
+```sql
+CREATE TABLE customer_segments (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  segment_name VARCHAR(50) NOT NULL,
+  description TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+Purpose: Categorizes customers for targeted analysis and marketing.
+
+Example data:
+```sql
+INSERT INTO customer_segments (segment_name, description) VALUES
+('Enterprise', 'Large corporations with 500+ employees'),
+('SMB', 'Small and medium businesses with 10-499 employees'),
+('Startup', 'Early-stage companies less than 2 years old');
+```
+
+### 3.3 Customers Table
+```sql
+CREATE TABLE customers (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(100) NOT NULL,
+  email VARCHAR(100),
+  phone VARCHAR(20),
+  address TEXT,
+  segment_id INT,
+  business_size ENUM('Small', 'Medium', 'Large', 'Enterprise') NOT NULL,
+  acquisition_date DATE,
+  lifetime_value DECIMAL(12,2) DEFAULT 0.00,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (segment_id) REFERENCES customer_segments(id) ON DELETE SET NULL
+);
+```
+
+Purpose: Stores customer information and tracks their value to the business.
+
+Example data:
+```sql
+INSERT INTO customers (name, email, phone, business_size, segment_id, acquisition_date, lifetime_value) VALUES
+('TechCorp Inc.', 'contact@techcorp.com', '555-0123', 'Enterprise', 1, '2023-01-15', 250000.00),
+('StartupHub', 'info@startuphub.com', '555-0124', 'Small', 3, '2023-06-01', 15000.00);
+```
+
+### 3.4 Revenue Categories Table
+```sql
+CREATE TABLE revenue_categories (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  category_name VARCHAR(50) NOT NULL,
+  description TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+Purpose: Classifies different types of revenue streams.
+
+Example data:
+```sql
+INSERT INTO revenue_categories (category_name, description) VALUES
+('Product Sales', 'Revenue from direct product sales'),
+('Consulting', 'Revenue from consulting services'),
+('Subscriptions', 'Recurring subscription revenue');
+```
+
+### 3.5 Expense Categories Table
+```sql
+CREATE TABLE expense_categories (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  category_name VARCHAR(50) NOT NULL,
+  description TEXT,
+  is_fixed BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+Purpose: Categorizes different types of expenses.
+
+Example data:
+```sql
+INSERT INTO expense_categories (category_name, description, is_fixed) VALUES
+('Payroll', 'Employee salaries and benefits', TRUE),
+('Marketing', 'Marketing and advertising expenses', FALSE),
+('Office Rent', 'Monthly office rental payments', TRUE);
+```
+
+### 3.6 Transactions Table
+```sql
+CREATE TABLE transactions (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  transaction_date DATE NOT NULL,
+  description TEXT,
+  amount DECIMAL(12,2) NOT NULL,
+  type ENUM('revenue', 'expense') NOT NULL,
+  category_id INT,
+  customer_id INT,
+  recurring BOOLEAN DEFAULT FALSE,
+  recurring_frequency ENUM('daily', 'weekly', 'monthly', 'quarterly', 'annually') NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL
+);
+```
+
+Purpose: Records all financial transactions.
+
+Example data:
+```sql
+INSERT INTO transactions (transaction_date, description, amount, type, category_id, customer_id, recurring, recurring_frequency) VALUES
+('2024-03-15', 'Monthly subscription payment', 1500.00, 'revenue', 3, 1, TRUE, 'monthly'),
+('2024-03-16', 'Office rent payment', 3000.00, 'expense', 3, NULL, TRUE, 'monthly');
+```
+
+### 3.7 Sales Stages Table
+```sql
+CREATE TABLE sales_stages (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  stage_name VARCHAR(50) NOT NULL,
+  description TEXT,
+  stage_order INT NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+Purpose: Defines stages in the sales pipeline.
+
+Example data:
+```sql
+INSERT INTO sales_stages (stage_name, description, stage_order) VALUES
+('Lead', 'Initial contact with potential customer', 1),
+('Qualification', 'Assessing customer needs and fit', 2),
+('Proposal', 'Formal proposal submitted', 3),
+('Negotiation', 'Contract negotiation phase', 4),
+('Closed Won', 'Successfully closed deal', 5);
+```
+
+### 3.8 Sales Funnel Entries Table
+```sql
+CREATE TABLE sales_funnel_entries (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  customer_id INT,
+  stage_id INT NOT NULL,
+  entry_date DATE NOT NULL,
+  exit_date DATE NULL,
+  value DECIMAL(12,2),
+  converted BOOLEAN DEFAULT FALSE,
+  notes TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL,
+  FOREIGN KEY (stage_id) REFERENCES sales_stages(id)
+);
+```
+
+Purpose: Tracks customer progression through the sales pipeline.
+
+Example data:
+```sql
+INSERT INTO sales_funnel_entries (customer_id, stage_id, entry_date, value, converted, notes) VALUES
+(2, 1, '2024-03-01', 25000.00, FALSE, 'Initial contact via website'),
+(1, 3, '2024-03-10', 150000.00, TRUE, 'Proposal for enterprise solution');
+```
+
+### 3.9 Cashflow Projections Table
+```sql
+CREATE TABLE cashflow_projections (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  projection_date DATE NOT NULL,
+  projected_inflow DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  projected_outflow DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  actual_inflow DECIMAL(12,2) DEFAULT NULL,
+  actual_outflow DECIMAL(12,2) DEFAULT NULL,
+  notes TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+```
+
+Purpose: Manages cash flow forecasting and tracking.
+
+Example data:
+```sql
+INSERT INTO cashflow_projections (projection_date, projected_inflow, projected_outflow, actual_inflow, actual_outflow) VALUES
+('2024-04-01', 50000.00, 35000.00, NULL, NULL),
+('2024-03-01', 45000.00, 32000.00, 47500.00, 31000.00);
+```
+
+### 3.10 KPI Metrics Table
+```sql
+CREATE TABLE kpi_metrics (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  metric_name VARCHAR(50) NOT NULL,
+  metric_value DECIMAL(12,2) NOT NULL,
+  target_value DECIMAL(12,2) NOT NULL,
+  metric_date DATE NOT NULL,
+  metric_type ENUM('percentage', 'currency', 'number', 'ratio') NOT NULL,
+  description TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+```
+
+Purpose: Tracks key performance indicators.
+
+Example data:
+```sql
+INSERT INTO kpi_metrics (metric_name, metric_value, target_value, metric_date, metric_type, description) VALUES
+('Customer Acquisition Cost', 500.00, 450.00, '2024-03-15', 'currency', 'Average cost to acquire new customer'),
+('Conversion Rate', 25.50, 30.00, '2024-03-15', 'percentage', 'Lead to customer conversion rate');
+```
+
+## 4. Common Queries and Use Cases
+
+### 4.1 Revenue Analysis
+```sql
+-- Total revenue by category for current month
+SELECT 
+    rc.category_name,
+    SUM(t.amount) as total_revenue
+FROM transactions t
+JOIN revenue_categories rc ON t.category_id = rc.id
+WHERE t.type = 'revenue'
+AND MONTH(t.transaction_date) = MONTH(CURRENT_DATE)
+AND YEAR(t.transaction_date) = YEAR(CURRENT_DATE)
+GROUP BY rc.category_name;
+```
+
+### 4.2 Customer Value Analysis
+```sql
+-- Top customers by lifetime value
+SELECT 
+    c.name,
+    c.business_size,
+    cs.segment_name,
+    c.lifetime_value
+FROM customers c
+JOIN customer_segments cs ON c.segment_id = cs.id
+ORDER BY c.lifetime_value DESC
+LIMIT 10;
+```
+
+### 4.3 Sales Pipeline Analysis
+```sql
+-- Current sales pipeline value by stage
+SELECT 
+    ss.stage_name,
+    COUNT(sfe.id) as deals_count,
+    SUM(sfe.value) as total_value
+FROM sales_funnel_entries sfe
+JOIN sales_stages ss ON sfe.stage_id = ss.id
+WHERE sfe.exit_date IS NULL
+GROUP BY ss.stage_name
+ORDER BY ss.stage_order;
+```
+
+### 4.4 Cash Flow Analysis
+```sql
+-- Monthly cash flow projection vs actual
+SELECT 
+    projection_date,
+    projected_inflow - projected_outflow as projected_net,
+    COALESCE(actual_inflow, 0) - COALESCE(actual_outflow, 0) as actual_net
+FROM cashflow_projections
+WHERE projection_date >= DATE_SUB(CURRENT_DATE, INTERVAL 3 MONTH)
+ORDER BY projection_date;
+```
+
+## 5. Performance Optimization
+
+The schema includes several indexes for optimizing common queries:
+
+```sql
+CREATE INDEX idx_transactions_date ON transactions(transaction_date);
+CREATE INDEX idx_transactions_type ON transactions(type);
+CREATE INDEX idx_customers_segment ON customers(segment_id);
+CREATE INDEX idx_sales_funnel_stage ON sales_funnel_entries(stage_id);
+CREATE INDEX idx_cashflow_date ON cashflow_projections(projection_date);
+CREATE INDEX idx_kpi_date ON kpi_metrics(metric_date);
+```
+
+These indexes improve performance for:
+- Date-based transaction queries
+- Transaction type filtering
+- Customer segment analysis
+- Sales funnel stage analysis
+- Cash flow date queries
+- KPI trend analysis
+
+## 6. Best Practices
+
+1. **Data Integrity**
+   - Always use transactions for related operations
+   - Maintain referential integrity with foreign keys
+   - Use appropriate data types and constraints
+
+2. **Performance**
+   - Use indexed columns in WHERE clauses
+   - Avoid SELECT * in production queries
+   - Regular maintenance of indexes
+
+3. **Security**
+   - Never store plain text passwords
+   - Implement role-based access control
+   - Regular security audits
+
+4. **Maintenance**
+   - Regular backups
+   - Monitor table growth
+   - Archive old data when necessary
+
+## 7. Conclusion
+
+This schema provides a robust foundation for financial management and business analytics. It's designed to be scalable and maintainable while providing comprehensive data for business decision-making.
+
+For any questions or support, please contact the database administration team. 
