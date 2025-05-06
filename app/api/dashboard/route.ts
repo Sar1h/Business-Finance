@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import {
   getFinancialSummary,
   getMonthlyRevenueExpenses,
@@ -7,68 +7,66 @@ import {
   getCashflowTimeline,
   getKpiMetrics,
   getRecentTransactions,
-  getCustomerGrowthRate,
-  getCustomerLifetimeValue,
-  getRevenueByCustomerAge,
-  getRecurringRevenue,
-  getExpenseTrends,
-  getDealVelocity,
-  getCustomerProfitability
+  getCustomerFinancialSummary,
+  getCustomerMonthlyData,
+  getCustomerTransactions
 } from '@/lib/db';
 
-export async function GET() {
-  // Create an object to hold our dashboard data
-  const dashboardData: any = {};
-  let hasErrors = false;
-  const errors: string[] = [];
-
-  // Function to safely execute a database query
-  const safeQuery = async (key: string, queryFn: Function, ...args: any[]) => {
-    try {
-      dashboardData[key] = await queryFn(...args);
-    } catch (error) {
-      console.error(`Error fetching ${key}:`, error);
-      dashboardData[key] = [];
-      hasErrors = true;
-      errors.push(`${key}: ${error instanceof Error ? error.message : String(error)}`);
+export async function GET(request: NextRequest) {
+  try {
+    const searchParams = request.nextUrl.searchParams;
+    const customerIdParam = searchParams.get('customerId');
+    let customerId = null;
+    
+    // Process customer ID if provided
+    if (customerIdParam) {
+      customerId = parseInt(customerIdParam);
+      if (isNaN(customerId)) {
+        return NextResponse.json(
+          { error: 'Invalid customer ID' },
+          { status: 400 }
+        );
+      }
     }
-  };
-
-  // Execute all queries in parallel but handle errors for each individually
-  await Promise.all([
-    safeQuery('financialSummary', getFinancialSummary),
-    safeQuery('monthlyData', getMonthlyRevenueExpenses),
-    safeQuery('customerSegments', getCustomerSegments),
-    safeQuery('salesFunnel', getSalesFunnel),
-    safeQuery('cashflowTimeline', getCashflowTimeline),
-    safeQuery('kpiMetrics', getKpiMetrics),
-    safeQuery('recentTransactions', getRecentTransactions, 5),
-    safeQuery('customerGrowth', getCustomerGrowthRate),
-    safeQuery('customerLifetimeValue', getCustomerLifetimeValue),
-    safeQuery('revenueByCustomerAge', getRevenueByCustomerAge),
-    safeQuery('recurringRevenue', getRecurringRevenue),
-    safeQuery('expenseTrends', getExpenseTrends),
-    safeQuery('dealVelocity', getDealVelocity),
-    safeQuery('customerProfitability', getCustomerProfitability)
-  ]);
-
-  // If financialSummary is missing, provide a fallback to avoid UI errors
-  if (!dashboardData.financialSummary) {
-    dashboardData.financialSummary = {
-      monthlyRevenue: 0,
-      monthlyExpenses: 0,
-      netProfit: 0,
-      cashBalance: 0,
-      revenueChange: 0,
-      expensesChange: 0,
-      netProfitChange: 0
-    };
+    
+    // Get the appropriate data based on whether a customer ID is provided
+    const financialSummary = customerId 
+      ? await getCustomerFinancialSummary(customerId)
+      : await getFinancialSummary();
+    
+    const monthlyData = customerId
+      ? await getCustomerMonthlyData(customerId)
+      : await getMonthlyRevenueExpenses();
+    
+    const transactions = customerId
+      ? await getCustomerTransactions(customerId, 10)
+      : await getRecentTransactions(10);
+    
+    // These remain the same regardless of whether a customer ID is provided
+    const customerSegments = await getCustomerSegments();
+    const salesFunnel = await getSalesFunnel();
+    
+    // Pass customerId to cashflow and KPI functions so they can filter data
+    const cashflowTimeline = await getCashflowTimeline(customerId || undefined);
+    const kpiMetrics = await getKpiMetrics(customerId || undefined);
+    
+    return NextResponse.json({
+      data: {
+        financialSummary,
+        monthlyData,
+        customerSegments,
+        salesFunnel,
+        cashflowTimeline,
+        kpiMetrics,
+        recentTransactions: transactions,
+        customerId
+      }
+    });
+  } catch (error) {
+    console.error('Error getting dashboard data:', error);
+    return NextResponse.json(
+      { error: 'Failed to fetch dashboard data' },
+      { status: 500 }
+    );
   }
-
-  // Return all available dashboard data, even if some parts failed
-  return NextResponse.json({
-    status: hasErrors ? 'partial' : 'success',
-    data: dashboardData,
-    errors: hasErrors ? errors : undefined
-  });
 } 

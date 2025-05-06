@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react'
 import dynamic from 'next/dynamic'
-import { getMonthlyData } from '@/lib/api'
+import { getMonthlyData, getCustomerMonthlyData, getSearchParams } from '@/lib/api'
 import { MonthlyData } from '@/lib/types'
 
 // Import ApexCharts types
@@ -15,11 +15,22 @@ export default function ClientRevenueChart() {
   const [monthlyData, setMonthlyData] = useState<MonthlyData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [title, setTitle] = useState('Revenue & Expenses');
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const data = await getMonthlyData();
+        const { customerId } = getSearchParams();
+        let data;
+        
+        if (customerId) {
+          data = await getCustomerMonthlyData(customerId);
+          setTitle(`Revenue & Expenses for Customer #${customerId}`);
+        } else {
+          data = await getMonthlyData();
+          setTitle('Revenue & Expenses');
+        }
+        
         setMonthlyData(Array.isArray(data) ? data : []);
       } catch (error) {
         console.error('Error fetching monthly data:', error);
@@ -98,6 +109,14 @@ export default function ClientRevenueChart() {
       strokeDashArray: 4,
     },
     colors: ['#f97316', '#e2e8f0'],
+    title: {
+      text: title,
+      align: 'left',
+      style: {
+        fontSize: '16px',
+        color: '#5a5a5a'
+      }
+    }
   }
 
   const series = [

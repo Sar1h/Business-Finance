@@ -109,4 +109,17 @@ export interface CustomerProfitability {
   total_cost: number;
   profit: number;
   profit_margin: number;
+}
+
+// Add CustomerInfo interface
+export interface CustomerInfo {
+  id: number;
+  name: string;
+  business_size: string;
+  lifetime_value: number;
+  acquisition_date: string;
+  last_purchase_date: string;
+  payment_reliability: number;
+  risk_score: number;
+  segment_name: string;
 } 

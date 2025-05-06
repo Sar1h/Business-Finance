@@ -1,4 +1,4 @@
-import { FinancialSummary, MonthlyData, CustomerSegment, SalesFunnelData, CashflowData, KpiMetric, Transaction, CustomerGrowth, CustomerLifetimeValue, RevenueByCustomerAge, RecurringRevenue, ExpenseTrend, DealVelocity, CustomerProfitability } from './types';
+import { FinancialSummary, MonthlyData, CustomerSegment, SalesFunnelData, CashflowData, KpiMetric, Transaction, CustomerGrowth, CustomerLifetimeValue, RevenueByCustomerAge, RecurringRevenue, ExpenseTrend, DealVelocity, CustomerProfitability, CustomerInfo } from './types';
 import mysql from 'mysql2/promise';
 
 // Create a connection pool
@@ -143,13 +143,14 @@ export async function getMonthlyRevenueExpenses(): Promise<MonthlyData[]> {
       SUM(CASE WHEN type = 'revenue' THEN amount ELSE 0 END) AS revenue,
       SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) AS expense
     FROM transactions
-    WHERE transaction_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 6 MONTH)
     GROUP BY DATE_FORMAT(transaction_date, '%Y-%m')
     ORDER BY month
   `;
   
   try {
-    return await query<MonthlyData>(sql);
+    const result = await query<MonthlyData>(sql);
+    console.log("Monthly data found:", result.length, "records");
+    return result;
   } catch (error) {
     console.error('Error getting monthly data:', error);
     throw error;
@@ -206,36 +207,73 @@ export async function getSalesFunnel(): Promise<SalesFunnelData[]> {
 
 /**
  * Get cashflow timeline data from cashflow table
+ * @param {number|null} customerId - Optional customer ID to filter data
  * @returns {Promise<CashflowData[]>} - Cashflow data
  */
-export async function getCashflowTimeline(): Promise<CashflowData[]> {
-  const sql = `
-    SELECT 
-      period_date as projection_date,
-      projected_inflow,
-      projected_outflow,
-      actual_inflow,
-      actual_outflow,
-      (projected_inflow - projected_outflow) AS projected_net,
-      (actual_inflow - actual_outflow) AS actual_net
-    FROM cashflow
-    ORDER BY period_date
-  `;
-  
-  try {
-    return await query<CashflowData>(sql);
-  } catch (error) {
-    console.error('Error getting cashflow timeline:', error);
-    throw error;
+export async function getCashflowTimeline(customerId?: number): Promise<CashflowData[]> {
+  // If customerId is provided, we'll calculate cashflow from transactions
+  if (customerId) {
+    const sql = `
+      SELECT 
+        DATE_FORMAT(transaction_date, '%Y-%m-01') as projection_date,
+        SUM(CASE WHEN type = 'revenue' THEN amount ELSE 0 END) as projected_inflow,
+        SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) as projected_outflow,
+        SUM(CASE WHEN type = 'revenue' THEN amount ELSE 0 END) as actual_inflow,
+        SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) as actual_outflow,
+        SUM(CASE WHEN type = 'revenue' THEN amount ELSE -amount END) AS projected_net,
+        SUM(CASE WHEN type = 'revenue' THEN amount ELSE -amount END) AS actual_net
+      FROM transactions
+      WHERE customer_id = ?
+      GROUP BY DATE_FORMAT(transaction_date, '%Y-%m-01')
+      ORDER BY projection_date
+    `;
+    
+    try {
+      const result = await query<CashflowData>(sql, [customerId]);
+      console.log(`Found ${result.length} customer-specific cashflow timeline records for customer ${customerId}`);
+      return result;
+    } catch (error) {
+      console.error('Error getting customer cashflow timeline:', error);
+      throw error;
+    }
+  } else {
+    // Use the original query for all customers
+    const sql = `
+      SELECT 
+        period_date as projection_date,
+        projected_inflow,
+        projected_outflow,
+        actual_inflow,
+        actual_outflow,
+        (projected_inflow - projected_outflow) AS projected_net,
+        (actual_inflow - actual_outflow) AS actual_net
+      FROM cashflow
+      ORDER BY period_date
+    `;
+    
+    try {
+      const result = await query<CashflowData>(sql);
+      console.log(`Found ${result.length} cashflow timeline records for all customers`);
+      if (result.length === 0) {
+        console.log('No cashflow data found - you may need to run the /api/add-cashflow-test-data endpoint');
+      }
+      return result;
+    } catch (error) {
+      console.error('Error getting cashflow timeline:', error);
+      throw error;
+    }
   }
 }
 
 /**
- * Get KPI metrics data - For now, this returns mock data since there's no KPI table in the schema
- * We'll calculate KPIs from existing data
+ * Get KPI metrics data
+ * @param {number|null} customerId - Optional customer ID to filter data
  * @returns {Promise<KpiMetric[]>} - KPI metrics
  */
-export async function getKpiMetrics(): Promise<KpiMetric[]> {
+export async function getKpiMetrics(customerId?: number): Promise<KpiMetric[]> {
+  // Add customer filter if customerId is provided
+  const customerFilter = customerId ? `AND customer_id = ${customerId}` : '';
+  
   // Calculate profit margin from transactions
   const profitMarginSql = `
     SELECT 
@@ -247,22 +285,42 @@ export async function getKpiMetrics(): Promise<KpiMetric[]> {
       'percentage' as metric_type,
       'Net profit as a percentage of revenue' as description
     FROM transactions
-    WHERE transaction_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 3 MONTH)
+    WHERE transaction_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 12 MONTH)
+    ${customerFilter}
   `;
   
-  // Calculate customer retention rate
-  const customerRetentionSql = `
-    SELECT 
-      'Customer Retention' as metric_name,
-      COUNT(DISTINCT customer_id) * 100 / 
-      (SELECT COUNT(DISTINCT id) FROM customers) as metric_value,
-      90 as target_value,
-      'percentage' as metric_type,
-      'Percentage of customers with repeat purchases' as description
-    FROM transactions
-    WHERE type = 'revenue'
-    AND transaction_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 6 MONTH)
-  `;
+  // Calculate customer retention rate (only relevant for all customers)
+  let customerRetentionSql;
+  if (customerId) {
+    customerRetentionSql = `
+      SELECT 
+        'Customer Retention' as metric_name,
+        CASE 
+          WHEN EXISTS (
+            SELECT 1 FROM transactions 
+            WHERE customer_id = ${customerId} 
+            AND transaction_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 3 MONTH)
+          ) THEN 100
+          ELSE 0
+        END as metric_value,
+        90 as target_value,
+        'percentage' as metric_type,
+        'Customer active status in last 3 months' as description
+    `;
+  } else {
+    customerRetentionSql = `
+      SELECT 
+        'Customer Retention' as metric_name,
+        COUNT(DISTINCT customer_id) * 100 / 
+        (SELECT COUNT(DISTINCT id) FROM customers) as metric_value,
+        90 as target_value,
+        'percentage' as metric_type,
+        'Percentage of customers with recent activity' as description
+      FROM transactions
+      WHERE type = 'revenue'
+      AND transaction_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 6 MONTH)
+    `;
+  }
   
   // Calculate average deal size
   const avgDealSizeSql = `
@@ -274,39 +332,65 @@ export async function getKpiMetrics(): Promise<KpiMetric[]> {
       'Average revenue transaction amount' as description
     FROM transactions
     WHERE type = 'revenue'
-    AND transaction_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 3 MONTH)
+    AND transaction_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 12 MONTH)
+    ${customerFilter}
   `;
   
-  // Calculate cash runway
-  const cashRunwaySql = `
-    SELECT 
-      'Cash Runway' as metric_name,
-      (SELECT 
-        (SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE type = 'revenue') - 
-        (SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE type = 'expense')
-      ) / 
-      (
-        SELECT AVG(monthly_expense) FROM (
-          SELECT 
-            YEAR(transaction_date) as year, 
-            MONTH(transaction_date) as month, 
-            SUM(amount) as monthly_expense
-          FROM transactions
-          WHERE type = 'expense'
-          AND transaction_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 3 MONTH)
-          GROUP BY YEAR(transaction_date), MONTH(transaction_date)
-        ) as monthly_expenses
-      ) as metric_value,
-      12 as target_value,
-      'months' as metric_type,
-      'Months of operation possible with current cash' as description
-  `;
+  // Calculate cash runway (only relevant for all customers, for a customer use lifetime value instead)
+  let cashRunwaySql;
+  if (customerId) {
+    cashRunwaySql = `
+      SELECT 
+        'Customer Value' as metric_name,
+        COALESCE(
+          (SELECT lifetime_value FROM customers WHERE id = ${customerId}),
+          (SELECT SUM(amount) FROM transactions WHERE type = 'revenue' AND customer_id = ${customerId})
+        ) as metric_value,
+        5000 as target_value,
+        'currency' as metric_type,
+        'Total customer lifetime value' as description
+    `;
+  } else {
+    cashRunwaySql = `
+      SELECT 
+        'Cash Runway' as metric_name,
+        (SELECT 
+          (SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE type = 'revenue') - 
+          (SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE type = 'expense')
+        ) / 
+        (
+          SELECT AVG(monthly_expense) FROM (
+            SELECT 
+              YEAR(transaction_date) as year, 
+              MONTH(transaction_date) as month, 
+              SUM(amount) as monthly_expense
+            FROM transactions
+            WHERE type = 'expense'
+            AND transaction_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 3 MONTH)
+            GROUP BY YEAR(transaction_date), MONTH(transaction_date)
+          ) as monthly_expenses
+        ) as metric_value,
+        12 as target_value,
+        'months' as metric_type,
+        'Months of operation possible with current cash' as description
+    `;
+  }
   
   try {
     const [profitMargin] = await query<KpiMetric>(profitMarginSql);
     const [customerRetention] = await query<KpiMetric>(customerRetentionSql);
     const [avgDealSize] = await query<KpiMetric>(avgDealSizeSql);
     const [cashRunway] = await query<KpiMetric>(cashRunwaySql);
+    
+    // Log to help with debugging
+    if (customerId) {
+      console.log(`KPI metrics for customer ${customerId}:`, {
+        profitMargin: profitMargin?.metric_value,
+        customerRetention: customerRetention?.metric_value,
+        avgDealSize: avgDealSize?.metric_value,
+        customerValue: cashRunway?.metric_value
+      });
+    }
     
     return [profitMargin, customerRetention, avgDealSize, cashRunway];
   } catch (error) {
@@ -569,6 +653,183 @@ export async function getCustomerProfitability(): Promise<CustomerProfitability[
     return await query<CustomerProfitability>(sql);
   } catch (error) {
     console.error('Error getting customer profitability:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get financial summary for a specific customer
+ * @param {number} customerId - The customer ID
+ * @returns {Promise<FinancialSummary>} - Customer-specific financial summary
+ */
+export async function getCustomerFinancialSummary(customerId: number): Promise<FinancialSummary> {
+  try {
+    // Get total revenue for this customer
+    const revenueQuery = `
+      SELECT SUM(amount) as monthly_revenue
+      FROM transactions
+      WHERE type = 'revenue'
+      AND customer_id = ?
+    `;
+    
+    // Get total expenses for this customer
+    const expensesQuery = `
+      SELECT SUM(amount) as monthly_expenses
+      FROM transactions
+      WHERE type = 'expense'
+      AND customer_id = ?
+    `;
+    
+    // Get cash balance for this customer (total revenue - expenses)
+    const cashBalanceQuery = `
+      SELECT 
+        (SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE type = 'revenue' AND customer_id = ?) - 
+        (SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE type = 'expense' AND customer_id = ?) 
+        as cash_balance
+    `;
+    
+    // Get previous month data (not really needed now but keeping the same structure)
+    const prevRevenueQuery = `
+      SELECT COALESCE(SUM(amount), 0) as prev_monthly_revenue
+      FROM transactions
+      WHERE type = 'revenue'
+      AND customer_id = ?
+    `;
+    
+    const prevExpensesQuery = `
+      SELECT COALESCE(SUM(amount), 0) as prev_monthly_expenses
+      FROM transactions
+      WHERE type = 'expense'
+      AND customer_id = ?
+    `;
+    
+    const [revenue] = await query<{ monthly_revenue: number }>(revenueQuery, [customerId]);
+    const [expenses] = await query<{ monthly_expenses: number }>(expensesQuery, [customerId]);
+    const [cashBalance] = await query<{ cash_balance: number }>(cashBalanceQuery, [customerId, customerId]);
+    const [prevRevenue] = await query<{ prev_monthly_revenue: number }>(prevRevenueQuery, [customerId]);
+    const [prevExpenses] = await query<{ prev_monthly_expenses: number }>(prevExpensesQuery, [customerId]);
+    
+    console.log("Customer Financial Data:", {
+      customerId,
+      revenue,
+      expenses,
+      cashBalance
+    });
+    
+    // Calculate net profit
+    const monthlyRevenue = revenue.monthly_revenue || 0;
+    const monthlyExpenses = expenses.monthly_expenses || 0;
+    const netProfit = monthlyRevenue - monthlyExpenses;
+    
+    // For now, using static values for changes as we're just showing total numbers
+    const revenueChange = 0;
+    const expensesChange = 0;
+    const netProfitChange = 0;
+    
+    return {
+      monthlyRevenue,
+      monthlyExpenses,
+      netProfit,
+      cashBalance: cashBalance.cash_balance || 0,
+      revenueChange,
+      expensesChange,
+      netProfitChange
+    };
+  } catch (error) {
+    console.error('Error getting customer financial summary:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get monthly revenue & expenses for a specific customer
+ * @param {number} customerId - The customer ID
+ * @returns {Promise<MonthlyData[]>} - Customer-specific monthly data
+ */
+export async function getCustomerMonthlyData(customerId: number): Promise<MonthlyData[]> {
+  const sql = `
+    SELECT 
+      DATE_FORMAT(transaction_date, '%Y-%m') AS month,
+      SUM(CASE WHEN type = 'revenue' THEN amount ELSE 0 END) AS revenue,
+      SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) AS expense
+    FROM transactions
+    WHERE customer_id = ?
+    GROUP BY DATE_FORMAT(transaction_date, '%Y-%m')
+    ORDER BY month
+  `;
+  
+  try {
+    console.log(`Getting monthly data for customer ID: ${customerId}`);
+    const result = await query<MonthlyData>(sql, [customerId]);
+    console.log(`Found ${result.length} monthly data records for customer`);
+    return result;
+  } catch (error) {
+    console.error('Error getting customer monthly data:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get recent transactions for a specific customer
+ * @param {number} customerId - The customer ID
+ * @param {number} limit - Number of transactions to return
+ * @returns {Promise<Transaction[]>} - Customer-specific transactions
+ */
+export async function getCustomerTransactions(customerId: number, limit: number = 5): Promise<Transaction[]> {
+  const sql = `
+    SELECT 
+      t.id, 
+      t.transaction_date, 
+      t.description, 
+      t.amount, 
+      t.type,
+      c.category_name as category,
+      COALESCE(cu.name, 'Unknown') as customer,
+      t.recurring
+    FROM transactions t
+    LEFT JOIN categories c ON t.category_id = c.id
+    LEFT JOIN customers cu ON t.customer_id = cu.id
+    WHERE t.customer_id = ?
+    ORDER BY t.transaction_date DESC
+    LIMIT ?
+  `;
+  
+  try {
+    console.log(`Getting transactions for customer ID: ${customerId}, limit: ${limit}`);
+    const transactions = await query<Transaction>(sql, [customerId, limit]);
+    console.log(`Found ${transactions.length} transactions`);
+    return transactions;
+  } catch (error) {
+    console.error('Error getting customer transactions:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get all customers for dropdown
+ * @returns {Promise<CustomerInfo[]>} - List of all customers
+ */
+export async function getAllCustomers(): Promise<CustomerInfo[]> {
+  const sql = `
+    SELECT 
+      c.id,
+      c.name,
+      c.business_size,
+      c.lifetime_value,
+      c.acquisition_date,
+      c.last_purchase_date,
+      c.payment_reliability,
+      c.risk_score,
+      cs.segment_name
+    FROM customers c
+    LEFT JOIN customer_segments cs ON c.segment_id = cs.id
+    ORDER BY c.name
+  `;
+  
+  try {
+    return await query<CustomerInfo>(sql);
+  } catch (error) {
+    console.error('Error getting customers:', error);
     throw error;
   }
 }

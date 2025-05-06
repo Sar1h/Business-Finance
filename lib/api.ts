@@ -1,6 +1,11 @@
 export async function fetchDashboardData() {
   try {
-    const response = await fetch('/api/dashboard');
+    const { customerId } = getSearchParams();
+    const url = customerId 
+      ? `/api/dashboard?customerId=${customerId}` 
+      : '/api/dashboard';
+    
+    const response = await fetch(url);
     if (!response.ok) {
       throw new Error('Failed to fetch dashboard data');
     }
@@ -12,9 +17,52 @@ export async function fetchDashboardData() {
   }
 }
 
+/**
+ * Fetch generic monthly data
+ */
 export async function getMonthlyData() {
-  const data = await fetchDashboardData();
-  return data.monthlyData;
+  try {
+    const response = await fetch('/api/dashboard/monthly-data');
+    if (!response.ok) {
+      throw new Error('Failed to fetch monthly data');
+    }
+    return await response.json();
+  } catch (error) {
+    console.error('Error in getMonthlyData:', error);
+    throw error;
+  }
+}
+
+/**
+ * Fetch customer-specific monthly data
+ */
+export async function getCustomerMonthlyData(customerId: number) {
+  try {
+    const response = await fetch(`/api/dashboard/monthly-data?customerId=${customerId}`);
+    if (!response.ok) {
+      throw new Error('Failed to fetch customer monthly data');
+    }
+    return await response.json();
+  } catch (error) {
+    console.error('Error in getCustomerMonthlyData:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get URL search params
+ */
+export function getSearchParams() {
+  if (typeof window === 'undefined') {
+    return {};
+  }
+  
+  const params = new URLSearchParams(window.location.search);
+  const customerId = params.get('customerId');
+  
+  return {
+    customerId: customerId ? parseInt(customerId) : null
+  };
 }
 
 export async function getFinancialSummary() {

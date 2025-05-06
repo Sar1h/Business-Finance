@@ -10,11 +10,50 @@ import CustomerSegmentsChart from "@/components/customer-segments-chart"
 import SalesFunnelChart from "@/components/sales-funnel-chart"
 import CashflowTimelineChart from "@/components/cashflow-timeline-chart"
 import KpiRadialCharts from "@/components/kpi-radial-charts"
-import { getFinancialSummary } from "@/lib/db"
-import type { FinancialSummary } from "@/lib/types"
+import CustomerDropdown from "@/components/customer-dropdown"
+import { getFinancialSummary, getAllCustomers, getCustomerFinancialSummary, getCustomerTransactions } from "@/lib/db"
+import type { FinancialSummary, CustomerInfo, Transaction } from "@/lib/types"
 
-export default async function Home() {
-  const financialSummary = await getFinancialSummary() as FinancialSummary;
+interface HomeProps {
+  searchParams: { [key: string]: string | string[] | undefined };
+}
+
+export default async function Home({ searchParams }: HomeProps) {
+  // Get customerId from searchParams safely
+  let customerId: number | null = null;
+  
+  try {
+    // Safe parsing of customerId from searchParams
+    if (searchParams && 'customerId' in searchParams) {
+      const customerIdParam = searchParams.customerId;
+      if (typeof customerIdParam === 'string') {
+        const parsed = parseInt(customerIdParam, 10);
+        if (!isNaN(parsed)) {
+          customerId = parsed;
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Error parsing customerId:', error);
+  }
+  
+  let financialSummary: FinancialSummary;
+  let customerDetails: CustomerInfo | null = null;
+  let customerTransactions: Transaction[] = [];
+  let customers: CustomerInfo[] = [];
+  
+  // Get all customers for the dropdown
+  customers = await getAllCustomers();
+  
+  // If customerId is provided, get customer-specific data
+  if (customerId) {
+    financialSummary = await getCustomerFinancialSummary(customerId);
+    customerTransactions = await getCustomerTransactions(customerId);
+    customerDetails = customers.find(c => c.id === customerId) || null;
+  } else {
+    // Otherwise get the general financial summary
+    financialSummary = await getFinancialSummary();
+  }
   
   const formatCurrency = (amount: number) => {
     return "₹" + amount.toLocaleString('en-IN', { maximumFractionDigits: 0 });
@@ -29,6 +68,11 @@ export default async function Home() {
     return `${prefix} ${Math.abs(change).toFixed(1)}%`;
   };
 
+  const formatDate = (dateString: string | Date) => {
+    const date = dateString instanceof Date ? dateString : new Date(dateString);
+    return date.toLocaleDateString('en-IN', { year: 'numeric', month: 'short', day: 'numeric' });
+  };
+
   return (
     <div className="flex min-h-screen flex-col">
       <header className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b bg-background px-4 md:px-6">
@@ -39,6 +83,7 @@ export default async function Home() {
           </Badge>
         </div>
         <nav className="ml-auto flex gap-4">
+          <CustomerDropdown customers={customers} currentCustomerId={customerId} />
           <Button variant="ghost" size="sm" className="text-orange-700 hover:text-orange-900 hover:bg-orange-50">
             Dashboard
           </Button>
@@ -57,8 +102,14 @@ export default async function Home() {
       <main className="flex-1 p-4 md:p-6">
         <div className="mb-6 flex flex-col items-center justify-between gap-4 md:flex-row">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">Financial Dashboard</h1>
-            <p className="text-muted-foreground">Comprehensive overview of your business finances</p>
+            <h1 className="text-2xl font-bold tracking-tight">
+              {customerDetails ? `${customerDetails.name} - Financial Dashboard` : 'Financial Dashboard'}
+            </h1>
+            <p className="text-muted-foreground">
+              {customerDetails ? 
+                `Financial data for ${customerDetails.name} (${customerDetails.business_size})` : 
+                'Comprehensive overview of your business finances'}
+            </p>
           </div>
           <div className="flex gap-2">
             <Button variant="outline" size="sm" className="border-orange-200 hover:bg-orange-50">
@@ -267,7 +318,9 @@ export default async function Home() {
             <CardHeader className="flex flex-row items-center space-y-0 pb-2 bg-gradient-to-r from-orange-50 to-white">
               <div className="grid gap-0.5">
                 <CardTitle>Recent Transactions</CardTitle>
-                <CardDescription>Latest financial activities</CardDescription>
+                <CardDescription>
+                  {customerDetails ? `Latest transactions for ${customerDetails.name}` : 'Latest financial activities'}
+                </CardDescription>
               </div>
               <div className="ml-auto flex items-center gap-2">
                 <Input placeholder="Search transactions..." className="h-8 w-[150px] sm:w-[200px] border-orange-200 focus-visible:ring-orange-500" />
@@ -285,52 +338,86 @@ export default async function Home() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  <TableRow className="hover:bg-orange-50">
-                    <TableCell>Client Payment - ABC Corp</TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className="border-green-200 bg-green-50 text-green-700">Income</Badge>
-                    </TableCell>
-                    <TableCell>Apr 05, 2023</TableCell>
-                    <TableCell className="text-right font-medium text-green-600">₹5,400.00</TableCell>
-                  </TableRow>
-                  <TableRow className="hover:bg-orange-50">
-                    <TableCell>Software Subscription</TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className="border-red-200 bg-red-50 text-red-700">Expense</Badge>
-                    </TableCell>
-                    <TableCell>Apr 03, 2023</TableCell>
-                    <TableCell className="text-right font-medium text-red-600">-₹89.00</TableCell>
-                  </TableRow>
-                  <TableRow className="hover:bg-orange-50">
-                    <TableCell>Client Payment - XYZ Ltd</TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className="border-green-200 bg-green-50 text-green-700">Income</Badge>
-                    </TableCell>
-                    <TableCell>Apr 01, 2023</TableCell>
-                    <TableCell className="text-right font-medium text-green-600">₹3,200.00</TableCell>
-                  </TableRow>
-                  <TableRow className="hover:bg-orange-50">
-                    <TableCell>Office Rent</TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className="border-red-200 bg-red-50 text-red-700">Expense</Badge>
-                    </TableCell>
-                    <TableCell>Apr 01, 2023</TableCell>
-                    <TableCell className="text-right font-medium text-red-600">-₹1,500.00</TableCell>
-                  </TableRow>
-                  <TableRow className="hover:bg-orange-50">
-                    <TableCell>Contractor Payment</TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className="border-red-200 bg-red-50 text-red-700">Expense</Badge>
-                    </TableCell>
-                    <TableCell>Mar 28, 2023</TableCell>
-                    <TableCell className="text-right font-medium text-red-600">-₹2,400.00</TableCell>
-                  </TableRow>
+                  {customerTransactions.length > 0 ? (
+                    customerTransactions.map((transaction) => (
+                      <TableRow key={transaction.id} className="hover:bg-orange-50">
+                        <TableCell>{transaction.description}</TableCell>
+                        <TableCell>
+                          <Badge 
+                            variant="outline" 
+                            className={transaction.type === 'revenue' ? 
+                              'border-green-200 bg-green-50 text-green-700' : 
+                              'border-red-200 bg-red-50 text-red-700'
+                            }
+                          >
+                            {transaction.type === 'revenue' ? 'Income' : 'Expense'}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>{formatDate(transaction.transaction_date)}</TableCell>
+                        <TableCell 
+                          className={`text-right font-medium ${
+                            transaction.type === 'revenue' ? 'text-green-600' : 'text-red-600'
+                          }`}
+                        >
+                          {transaction.type === 'revenue' ? '' : '-'}
+                          {formatCurrency(transaction.amount)}
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  ) : (
+                    <>
+                      <TableRow className="hover:bg-orange-50">
+                        <TableCell>Client Payment - ABC Corp</TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="border-green-200 bg-green-50 text-green-700">Income</Badge>
+                        </TableCell>
+                        <TableCell>Apr 05, 2023</TableCell>
+                        <TableCell className="text-right font-medium text-green-600">₹5,400.00</TableCell>
+                      </TableRow>
+                      <TableRow className="hover:bg-orange-50">
+                        <TableCell>Software Subscription</TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="border-red-200 bg-red-50 text-red-700">Expense</Badge>
+                        </TableCell>
+                        <TableCell>Apr 03, 2023</TableCell>
+                        <TableCell className="text-right font-medium text-red-600">-₹89.00</TableCell>
+                      </TableRow>
+                      <TableRow className="hover:bg-orange-50">
+                        <TableCell>Client Payment - XYZ Ltd</TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="border-green-200 bg-green-50 text-green-700">Income</Badge>
+                        </TableCell>
+                        <TableCell>Apr 01, 2023</TableCell>
+                        <TableCell className="text-right font-medium text-green-600">₹3,200.00</TableCell>
+                      </TableRow>
+                      <TableRow className="hover:bg-orange-50">
+                        <TableCell>Office Rent</TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="border-red-200 bg-red-50 text-red-700">Expense</Badge>
+                        </TableCell>
+                        <TableCell>Apr 01, 2023</TableCell>
+                        <TableCell className="text-right font-medium text-red-600">-₹1,500.00</TableCell>
+                      </TableRow>
+                      <TableRow className="hover:bg-orange-50">
+                        <TableCell>Contractor Payment</TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="border-red-200 bg-red-50 text-red-700">Expense</Badge>
+                        </TableCell>
+                        <TableCell>Mar 28, 2023</TableCell>
+                        <TableCell className="text-right font-medium text-red-600">-₹2,400.00</TableCell>
+                      </TableRow>
+                    </>
+                  )}
                 </TableBody>
               </Table>
             </CardContent>
             <CardFooter className="bg-gradient-to-r from-white to-orange-50">
               <div className="flex w-full items-center justify-between">
-                <div className="text-xs text-muted-foreground">Showing 5 of 24 transactions</div>
+                <div className="text-xs text-muted-foreground">
+                  {customerTransactions.length > 0 ? 
+                    `Showing ${customerTransactions.length} transactions` : 
+                    'Showing 5 of 24 transactions'}
+                </div>
                 <div className="flex items-center gap-2">
                   <Button size="sm" variant="outline" disabled className="border-orange-200 hover:bg-orange-50">
                     Previous
